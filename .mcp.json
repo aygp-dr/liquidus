@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "liquidus": {
+      "command": "/home/jwalsh/ghq/github.com/aygp-dr/liquidus-005/.venv/bin/liquidus-mcp",
+      "env": {
+        "LIQUIDUS_BASE_URL": "http://localhost:4010",
+        "LIQUIDUS_BEARER": "liquidus-dev-stub"
+      }
+    }
+  }
+}

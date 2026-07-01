@@ -1,0 +1,10 @@
+{
+  "name": "liquidus-demo-mock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Demo mock — good curated Solidus-shaped data (not Prism schema-noise). Deliberately violates the three-file public-repo constraint for demo purposes. See README.org §Demo mock exception.",
+  "dependencies": {
+    "msw": "^2.6.0"
+  }
+}

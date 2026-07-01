@@ -1,0 +1,41 @@
+{
+  "orders": [
+    {
+      "id": 1042,
+      "number": "R001042",
+      "state": "complete",
+      "display_total": "$107.00",
+      "item_total": "107.00",
+      "total": "107.00",
+      "completed_at": "2026-06-28T09:14:22Z",
+      "line_items": [
+        { "id": 1, "variant_id": 1, "quantity": 1, "price": "89.00", "sku": "SLD-JKT-01" },
+        { "id": 2, "variant_id": 5, "quantity": 1, "price": "18.00", "sku": "SLD-PIN-05" }
+      ],
+      "shipments": [
+        { "id": 1, "state": "shipped", "tracking": "1Z999AA10123456784", "shipped_at": "2026-06-29T11:02:00Z" }
+      ]
+    },
+    {
+      "id": 1043,
+      "number": "R001043",
+      "state": "complete",
+      "display_total": "$46.00",
+      "item_total": "46.00",
+      "total": "46.00",
+      "completed_at": "2026-06-30T15:47:03Z",
+      "line_items": [
+        { "id": 3, "variant_id": 3, "quantity": 1, "price": "18.00", "sku": "SLD-MUG-03" },
+        { "id": 4, "variant_id": 7, "quantity": 1, "price": "28.00", "sku": "SLD-TEE-07" }
+      ],
+      "shipments": [
+        { "id": 2, "state": "pending", "tracking": null, "shipped_at": null }
+      ]
+    }
+  ],
+  "count": 2,
+  "total_count": 2,
+  "current_page": 1,
+  "per_page": 25,
+  "pages": 1
+}

@@ -1,0 +1,21 @@
+{
+  "products": [
+    { "id": 1,  "name": "Solidus Denim Jacket",       "display_price": "$89.00", "sku": "SLD-JKT-01",  "description": "Selvedge denim, made in Portugal.",             "taxons": [1, 3] },
+    { "id": 2,  "name": "Solidus Wool Beanie",        "display_price": "$28.00", "sku": "SLD-BNY-02",  "description": "Merino wool ribbed beanie, one size.",           "taxons": [1, 4] },
+    { "id": 3,  "name": "Solidus Ceramic Mug",        "display_price": "$18.00", "sku": "SLD-MUG-03",  "description": "12oz ceramic mug, dishwasher-safe.",             "taxons": [2] },
+    { "id": 4,  "name": "Solidus Canvas Tote",        "display_price": "$32.00", "sku": "SLD-TOT-04",  "description": "12oz canvas tote, natural.",                     "taxons": [2, 3] },
+    { "id": 5,  "name": "Solidus Enamel Pin Set",     "display_price": "$14.00", "sku": "SLD-PIN-05",  "description": "Three-piece hard enamel pin set.",               "taxons": [2, 4] },
+    { "id": 6,  "name": "Solidus Chore Coat",         "display_price": "$145.00","sku": "SLD-CHR-06",  "description": "Heavy waxed cotton chore coat, four pockets.",  "taxons": [1, 3] },
+    { "id": 7,  "name": "Solidus Cotton Tee",         "display_price": "$35.00", "sku": "SLD-TEE-07",  "description": "220gsm heavyweight cotton crew, boxy fit.",     "taxons": [1] },
+    { "id": 8,  "name": "Solidus Wool Sock (3-pack)", "display_price": "$24.00", "sku": "SLD-SCK-08",  "description": "Ribbed wool blend, three-pair pack.",            "taxons": [1] },
+    { "id": 9,  "name": "Solidus Notebook",           "display_price": "$16.00", "sku": "SLD-NBK-09",  "description": "A5 dot-grid, 96 pages, cloth cover.",           "taxons": [2] },
+    { "id": 10, "name": "Solidus Enamel Bowl",        "display_price": "$22.00", "sku": "SLD-BWL-10",  "description": "Speckled enamel camping bowl, 500ml.",           "taxons": [2] },
+    { "id": 11, "name": "Solidus Field Cap",          "display_price": "$42.00", "sku": "SLD-CAP-11",  "description": "Cotton twill five-panel field cap.",             "taxons": [1, 4] },
+    { "id": 12, "name": "Solidus Duffle Bag",         "display_price": "$188.00","sku": "SLD-DFL-12",  "description": "Waxed canvas duffle, brass hardware, 40L.",     "taxons": [1, 3] }
+  ],
+  "count": 12,
+  "total_count": 12,
+  "current_page": 1,
+  "per_page": 25,
+  "pages": 1
+}

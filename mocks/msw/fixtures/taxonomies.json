@@ -1,0 +1,25 @@
+{
+  "taxonomies": [
+    {
+      "id": 1,
+      "name": "Categories",
+      "taxons": [
+        { "id": 1, "name": "Apparel",     "permalink": "categories/apparel",     "pretty_name": "Categories → Apparel" },
+        { "id": 2, "name": "Accessories", "permalink": "categories/accessories", "pretty_name": "Categories → Accessories" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Collections",
+      "taxons": [
+        { "id": 3, "name": "Field Kit",  "permalink": "collections/field-kit",  "pretty_name": "Collections → Field Kit" },
+        { "id": 4, "name": "Everyday",   "permalink": "collections/everyday",   "pretty_name": "Collections → Everyday" }
+      ]
+    }
+  ],
+  "count": 2,
+  "total_count": 2,
+  "current_page": 1,
+  "per_page": 25,
+  "pages": 1
+}

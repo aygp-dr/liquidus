@@ -377,6 +377,24 @@ Language-agnostic. Every subcommand named here MUST appear in every downstream C
 
 *MCP-server bearer env* (v1.4). §Bearer-token env semantics (v1.2) covers CLI invocations. An MCP server is a long-lived process an agent trusts; it MUST NOT accept ~LIQUIDUS_BEARER=""~ and start "no header" mode. On empty-bearer startup the MCP server MUST refuse to launch and print to stderr: ~liquidus-mcp: LIQUIDUS_BEARER=\"\" is invalid for MCP server (see spec §MCP-server bearer env)~, then exit 3. This differs from the CLI norm because a CLI is invoked per-command with intentional flag control; an MCP server hands off invocation to an agent that cannot reason about the difference.
 
+*CLI UX contract* (v1.8, from Costa "UX patterns for CLI tools" audit).
+
+- *Help-with-examples (normative).* Every subcommand's ~--help~ MUST include at least one runnable example before the flag list. Reduces time-to-value. A ~--help~ that only lists flags is not conformant.
+- *Typo suggestions.* On an unknown subcommand, the CLI MUST print a "did you mean" suggestion using Damerau-Levenshtein (edit-distance ≤ 2 against the known subcommand list) and exit ~2~. Exit ~2~ is reserved for "user error, not upstream error" — outside the 3–7 upstream range from §Error-response contract.
+- *~NO_COLOR~ + non-TTY.* The ~--table~ renderer MUST detect ~NO_COLOR~ env var and non-TTY stdout (~isatty(1)==0~) and emit plain, colorless, single-column-per-line output in both cases. Piping ~liquidus ... --table | less~ MUST NOT include ANSI escapes.
+- *~--version~ global.* Every implementation's ~--version~ MUST print two lines: (line 1) tool semver + language + framework, (line 2) ~SOLIDUS_SPEC_SHA=<pinned>~ so the caller knows which upstream commit the client was built against.
+- *Structured JSON error object.* When ~--json~ is in effect and an error occurs, the error line on stderr MUST be a single-line JSON object of shape ~{"error": {"code": "<exit-code-name>", "status": <upstream>, "path": "<url>", "message": "<one-line>"}}~. Pipelines then don't have to regex-parse prose.
+
+*CLI anti-patterns to fix (v1.8, corrections).*
+
+- *Cart-bootstrap token was printed to stderr with exit 0.* Users who redirect ~2>/dev/null~ silently lost the token and hit an opaque failure on the next ~cart add~. Fix: the token also MUST be printed to *stdout* on a dedicated line when ~cart show~ mints (in JSON mode as part of the payload; in table/plain mode as ~LIQUIDUS_ORDER_TOKEN=<t>~ on the last line). Stderr is a debug echo, not the sole delivery channel.
+- *~-v~ on ~products get~ (as ~--include-variants~) squatted on the conventional ~--verbose~ short flag.* Fix: rename to ~-w, --with-variants~; keep ~--include-variants~ as a long alias for one release; reserve ~-v, --verbose~ globally per v1.2.
+
+*Deliberately rejected patterns (v1.8, not-goals stated).*
+
+- *Interactive wizard mode on the CLI.* The TUI is the interactive surface; mixing modes on one binary violates §Style guide's single-term rule and confuses ~--json~ output semantics.
+- *~.liquidusrc~ dotfile config.* The three env vars (~LIQUIDUS_BASE_URL~, ~LIQUIDUS_BEARER~, ~LIQUIDUS_ORDER_TOKEN~) are enough; dotfiles would introduce hidden state contrary to the toolkit's "contract in, contract out" invariant.
+
 *MCP tool ID field types* (v1.5). §MCP tool surface uses ~id: {"type": "string"}~ in every tool's inputSchema. The reified upstream OAS defines most numeric IDs (product.id, variant.id, taxon.id, address.id, line_item.id, ...) as ~integer~. Order-numbers, order-tokens, and coupon codes are strings. v1.5 aligns:
 - ~get_product.inputSchema.id~ → ~integer~
 - ~get_variant.inputSchema.id~ → ~integer~
@@ -582,6 +600,22 @@ As of v1.1 (liquidus-002 FEEDBACK.md §4) the shim is REQUIRED at the CART stage
 
 The ~liquidus-008~ session shim MUST NEVER sit in front of a live Solidus instance. Its ~session_store~ holds client-side ~order → line_items~ state that assumes the shim is the only writer. In front of Prism this is a demo convenience; in front of a real Solidus the very first customer cart write will diverge from the backend's cart, silently — a data-corruption class of bug. The shim's ~config.ru~ MUST assert that its ~PRISM_URL~ points to a Prism instance, not a Solidus one (v1.7 adds a guard: on startup the shim SHOULD ~GET /openapi~ or similar and refuse to launch if the response looks like a real Solidus rather than Prism).
 
+** Demo mock in the public repo (v1.8, boundary exception)
+
+The public repo's foundational discipline (~CLAUDE.md~ §Public repo scope: three files, no code) is deliberately violated by ~mocks/msw/~ (curated demo mock, MSW-backed) + ~demos/~ (asciinema+agg GIF generators) + ~.mcp.json~ (wires liquidus-005 MCP server into Claude Code sessions).
+
+*Why it's an exception, not a norm.* Prism's schema-noise output is technically correct but useless for demonstration or wired MCP tool calls (~"string"~ for every string field, ~0~ for every integer). Curated real-shaped data is the only way to let downstreams (Claude Code sessions, terminal screencasts, blog embeds) exercise the toolkit end-to-end.
+
+*Recommended mock:* MSW for exploration and demos (~mocks/msw/~ here); Prism for strict-contract automated tests (~liquidus-001~). The two mocks answer different questions and MUST both remain available.
+
+*Boundary of the violation.*
+- The demo mock's *shape* MUST match the reified OAS at the pinned SHA. Any drift is a bug in ~mocks/msw/~, not in the spec.
+- No separate spec revision for the mock — it tracks the whole repo's version.
+- No custom endpoints or computed fields absent from the OAS.
+- The reference topology ~Claude Code → .mcp.json → liquidus-005 → localhost:4010 (mocks/msw) → curated data~ MUST NOT be reproduced in production; it exists only for demos.
+
+*If the exception grows beyond ~mocks/msw/~ + ~demos/~ + ~.mcp.json~*, that is a spec bug (the spec isn't enough), not scope creep. Fold it back into ~spec.org~ before adding another file to the public repo.
+
 ** Live-Solidus verification examples
 
 A future v1+ artifact could ship 4–5 example snippets that talk to a *local* Solidus instance (docker-compose'd) with a real API key supplied via a git-ignored ~.env~. The natural home is a single ~docs/examples.org~ file with org-babel code blocks in shell, restclient/http, ruby, sql, and (over Emacs 32 container Tramp) direct process attachment. The file MAY be present in the public repo as a shape-of-v1 reference, but the code blocks MUST NOT be tangled or executed as part of the v0/v1.0 grind. Reason: same axiom refutation as the Cmd-J overlay — v0 through v1.0 have no running Solidus to hit, and adding one would move the repo across the ~liquidus~/~solidus~ phase boundary the name pins.
@@ -642,3 +676,4 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.5    | liquidus-006 (Ruby CLI/TUI) feedback             | 2026-07-01 | MINOR          | §MCP tool ID field types aligned to OAS (integer for most IDs, string for order-numbers/tokens/codes); Ruby version advisory (>= 3.1 for Solidus-adjacency, non-normative); TUI idiom acceptance (full-screen and line-oriented both acceptable) |
 | v1.6    | liquidus-007 (Ruby SDK) feedback                 | 2026-07-01 | MINOR          | §SDK generation contract: "RECOMMENDED" hierarchy removed — hand-authored is not second-class; scope discipline (customer-flow subset favors hand, full surface favors codegen); two-tier SDK API pattern (value objects + raw escape hatch) documented; SDK dependency policy (no framework lock-in); optional assert_spec_sha! runtime check |
 | v1.7    | liquidus-008 (Rack session shim) feedback        | 2026-07-01 | MINOR          | §Session shim: promoted from optional to REQUIRED at cart stage (was implicit in v1.1, made explicit); shim scope pinned to 3 intercepted endpoints + transparent proxy for rest; shim token format (~tok_shim_~ prefix) normative; §Explicit non-goals::Shim+live-Solidus data-corruption warning; F6/F7 acceptance tests promoted to run through the shim. Closes the v1 grind cycle. |
+| v1.8    | CLI UX audit (lucasfcosta) + demo-mock exception | 2026-07-01 | MINOR          | §CLI UX contract (v1.8): help-with-examples normative, typo suggestions (exit 2), NO_COLOR + non-TTY discipline, ~--version~ prints SPEC_SHA, structured JSON error object; anti-pattern fixes (cart-bootstrap token also to stdout; ~-v~ renamed to ~-w~ on products get); wizard-mode and ~.liquidusrc~ explicitly rejected. §Demo mock in the public repo: boundary exception documented for ~mocks/msw/~ + ~demos/~ + ~.mcp.json~. |

@@ -5,16 +5,55 @@
 
 * What this repo is
 
-A specification. Five files, no code.
+A specification for a Solidus API toolkit against a Prism-mocked contract. Originally three files; grown to include reification and a demo mock.
+
+*Normative spec:*
 
 - ~README.org~ — this file.
-- ~spec.org~ — the spec (v0 initial, current head: v1.0).
-- ~CLAUDE.md~ — agent instructions for anyone (human or agent) working against this spec.
-- ~GNUmakefile~ — targets to reify the upstream Solidus OpenAPI spec locally against a pinned commit SHA (~gmake spec~, ~gmake validate~, ~gmake tags~, ~gmake version~).
-- ~.gitignore~ — ignores ~.spec-cache/~ (reified spec, tracked by SHA not payload) and ~.env~ (opt-in live-Solidus verification, per docs/examples.org).
-- ~docs/examples.org~ — non-normative shape reference for a future v1+ live-Solidus verification story (org-babel: shell / restclient / ruby / sql / tramp).
+- ~spec.org~ — the spec (current head: v1.7).
+- ~CLAUDE.md~ — agent instructions.
+
+*Scaffold:*
+
+- ~GNUmakefile~ — reify OAS, run demo mock, print MCP config.
+- ~.gitignore~ — ignore ~.spec-cache/~, ~.env~, mock-runtime state.
+- ~docs/examples.org~ — non-normative live-Solidus verification shape reference.
+
+*Demo mock (deliberate constraint violation — see [[#demo-mock-exception][§Demo mock exception]]):*
+
+- ~mocks/msw/~ — MSW-backed demo mock, real-shaped Solidus data (12 products, 2 taxonomies, historical + session orders, cart-consistent).
+- ~demos/~ — asciinema/agg scripts producing the CLI / TUI / MCP demo GIFs shown below.
+- ~.mcp.json~ — wires the ~liquidus-005~ MCP server into Claude Code sessions launched from this dir.
 
 The name is the phase-diagram counterpart to /solidus/: the temperature boundary above which an alloy is fully molten. Apt because everything here happens in the pre-commitment phase — the API contract exists, but no toolkit implementation has solidified yet.
+
+* Demos
+
+Recorded against the demo mock (~gmake demo-mock~). Consumer CLIs, TUIs, and MCP servers all point at ~http://localhost:4010~ with the stub bearer.
+
+- CLI: ~demos/gifs/cli.gif~ — Ruby ~liquidus~ CLI (~liquidus-006~), curated Solidus data.
+- TUI: ~demos/gifs/tui.gif~ — Ruby ~liquidus-tui~ (~liquidus-006~), slash-command palette.
+- MCP: ~demos/gifs/mcp.gif~ — Python liquidus-mcp (~liquidus-005~), F5 provenance wrapping.
+
+* Demo mock exception
+:PROPERTIES:
+:CUSTOM_ID: demo-mock-exception
+:END:
+
+The public repo's foundational discipline (~CLAUDE.md~ §Public repo scope: three files, no code) is deliberately violated by ~mocks/msw/~ and ~demos/~. The exception is documented, not slipped in.
+
+*Why the exception exists.* The v0–v1.7 grind demonstrated that Prism's schema-noise output (~"string"~ for every string field, ~0~ for every integer) is technically correct but useless for demonstration and unusable for a wired-in MCP tool call. Shipping a curated MSW mock with real Solidus-shaped data is the only way to let a downstream (Claude Code, a demo terminal, a screenshot for a blog post) exercise the toolkit end-to-end.
+
+*Recommended mock:* MSW for exploration and demos (this repo's ~mocks/msw/~); Prism for strict-contract automated tests (~liquidus-001~).
+
+*Boundary of the violation.*
+
+- The mock's *shape* must always match the reified OAS at the pinned SHA. Any drift is a bug in ~mocks/msw/~, not in the spec.
+- The mock has no separate spec revision — it tracks the same version as the whole repo.
+- The mock MUST NOT ship logic that a real Solidus wouldn't have (no custom endpoints, no computed fields absent from the OAS).
+- Wire-in to Claude Code via ~.mcp.json~ points at the ~liquidus-005~ MCP server which itself points at ~localhost:4010~ (the demo mock). This chain is the deliberate reference topology; do not reproduce it in production.
+
+*If the exception grows.* Anything beyond ~mocks/msw/~ + ~demos/~ + ~.mcp.json~ suggests the spec is not enough. That is a spec bug, not a scope creep — fold it back into ~spec.org~ before adding another file to the public repo.
 
 * What this repo is not
 
@@ -51,8 +90,9 @@ Builds happen strictly in order — ~liquidus-00(n+1)~ does not start until ~liq
 | v1.5    | liquidus-006 (Ruby CLI/TUI) feedback | MINOR          | 2026-07-01 |
 | v1.6    | liquidus-007 (Ruby SDK) feedback     | MINOR          | 2026-07-01 |
 | v1.7    | liquidus-008 (Rack shim) feedback    | MINOR          | 2026-07-01 |
+| v1.8    | CLI UX audit + demo-mock exception   | MINOR          | 2026-07-01 |
 
-v1.7 closes the v1 grind cycle. All 8 private validation repos land against successive spec revisions; every revision traces to a specific FEEDBACK.md observation. One major bump (v0 → v1.0) — the reified OAS was v1 classic, not v2 storefront/platform as v0 assumed. Everything after was additive. Major-bump reason (v0 → v1.0): reified OAS is the v1 Spree classic API, not the v2 storefront/platform split v0 assumed — path structure and auth model are both wire-breaking. See spec.org §Refutation conditions (spec-level).
+v1.7 closes the v1 grind cycle. v1.8 adds the CLI UX contract (lucasfcosta audit) + the deliberate demo-mock boundary exception documented in [[#demo-mock-exception][§Demo mock exception]] below. Every revision traces to a specific FEEDBACK.md observation. One major bump (v0 → v1.0) — the reified OAS was v1 classic, not v2 storefront/platform as v0 assumed. Everything after has been additive.
 
 * Read next
 

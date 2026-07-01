@@ -14,16 +14,22 @@ SPEC_CACHE_DIR   := .spec-cache
 SPEC_FILE        := $(SPEC_CACHE_DIR)/solidus-api.oas.yml
 SPEC_SHA_FILE    := $(SPEC_CACHE_DIR)/.pinned-sha
 
-.PHONY: help spec validate tags version clean nuke check-tools
+.PHONY: help spec validate tags version clean nuke check-tools demo-mock demo-mock-stop demo-mock-install mcp-config
+
+MOCK_PORT ?= 4010
 
 help:
 	@printf 'liquidus spec-repo targets:\n'
-	@printf '  gmake spec       fetch the Solidus OpenAPI spec at pinned SHA\n'
-	@printf '  gmake validate   run redocly lint against the reified spec\n'
-	@printf '  gmake tags       list the 29 tags in the reified spec\n'
-	@printf '  gmake version    print the pinned SOLIDUS_SPEC_SHA and reified blob SHA\n'
-	@printf '  gmake clean      remove the reified copy (keeps cache dir)\n'
-	@printf '  gmake nuke       remove the whole cache dir\n'
+	@printf '  gmake spec              fetch the Solidus OpenAPI spec at pinned SHA\n'
+	@printf '  gmake validate          run redocly lint against the reified spec\n'
+	@printf '  gmake tags              list the tags in the reified spec\n'
+	@printf '  gmake version           print the pinned SOLIDUS_SPEC_SHA and reified blob SHA\n'
+	@printf '  gmake clean             remove the reified copy (keeps cache dir)\n'
+	@printf '  gmake nuke              remove the whole cache dir\n'
+	@printf '\ndemo-mock (deliberate constraint violation — see README §Demo mock exception):\n'
+	@printf '  gmake demo-mock         install + start MSW-backed demo mock on :$(MOCK_PORT)\n'
+	@printf '  gmake demo-mock-stop    stop the demo mock\n'
+	@printf '  gmake mcp-config        print MCP client config for wiring liquidus-mcp\n'
 
 $(SPEC_CACHE_DIR):
 	@mkdir -p $(SPEC_CACHE_DIR)
@@ -60,3 +66,30 @@ clean:
 
 nuke:
 	@rm -rf "$(SPEC_CACHE_DIR)"
+
+# -----------------------------------------------------------------------------
+# Demo mock (deliberate constraint violation — see README §Demo mock exception)
+
+mocks/msw/node_modules: mocks/msw/package.json
+	@cd mocks/msw && npm install --silent
+
+demo-mock-install: mocks/msw/node_modules
+
+demo-mock: demo-mock-install
+	@if [ -f .demo-mock.pid ] && kill -0 "$$(cat .demo-mock.pid)" 2>/dev/null; then \
+	  printf 'demo mock already running (pid %s)\n' "$$(cat .demo-mock.pid)"; \
+	else \
+	  LIQUIDUS_MOCK_PORT=$(MOCK_PORT) node mocks/msw/server.mjs > .demo-mock.log 2>&1 & echo $$! > .demo-mock.pid ; \
+	  sleep 2 ; \
+	  printf 'demo mock pid=%s on :%s\n' "$$(cat .demo-mock.pid)" "$(MOCK_PORT)"; \
+	fi
+
+demo-mock-stop:
+	@if [ -f .demo-mock.pid ]; then \
+	  kill "$$(cat .demo-mock.pid)" 2>/dev/null || true; \
+	  rm -f .demo-mock.pid; \
+	  printf 'stopped demo mock\n'; \
+	fi
+
+mcp-config:
+	@printf '{\n  "mcpServers": {\n    "liquidus": {\n      "command": "%s/liquidus-005/.venv/bin/liquidus-mcp",\n      "env": {\n        "LIQUIDUS_BASE_URL": "http://localhost:%s",\n        "LIQUIDUS_BEARER": "liquidus-dev-stub"\n      }\n    }\n  }\n}\n' "$$(cd .. && pwd)" "$(MOCK_PORT)"

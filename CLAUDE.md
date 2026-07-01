@@ -41,6 +41,9 @@ This is the *entire* tracked file list:
 - `GNUmakefile` — targets to reify the upstream Solidus OpenAPI spec locally against the pinned SHA (`gmake spec`, `gmake validate`, `gmake tags`, `gmake version`).
 - `.gitignore` — ignores `.spec-cache/`. The reified upstream spec is a build artifact, tracked by pointer (SHA), not payload.
 - `docs/` (permitted, sparse) — design artifacts that inform the spec but exceed the shape of a single spec section (customer-flow diagrams, command-surface tables that would bloat `spec.org`, future-work notes for explicit non-goals). Each file MUST have a corresponding pointer in `spec.org` — orphaned docs are a smell. Do NOT check code into `docs/`.
+- `mocks/msw/` (v1.8, deliberate exception) — MSW-backed demo mock with curated Solidus-shaped data. Documented in `spec.org` §Demo mock in the public repo. NOT a normative artifact; do NOT reference from grind-repo FEEDBACK.md as an oracle for spec shape (the reified OAS at pinned SHA is the oracle).
+- `demos/` (v1.8) — asciinema/agg scripts + generated GIFs for the CLI/TUI/MCP demonstrations linked from README.org. Regenerate any time with `gmake demos` (target added when a demo script changes).
+- `.mcp.json` (v1.8) — wires the `liquidus-005` MCP server into Claude Code sessions launched from this dir, pointing at `mocks/msw/` (via localhost:4010). Reference topology only; do not reproduce in production.
 
 Anything else is a smell. If you need to add a diagram, tangle it from `spec.org` at read time; don't check the rendered SVG in. If you need to touch generated code, you are in the wrong repo — do it in a `liquidus-00x` build repo.
 

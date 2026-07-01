@@ -6,3 +6,9 @@
 # (see docs/examples.org). The .env is opt-in and non-normative for v0/v1.0.
 .env
 .env.local
+
+# Demo mock runtime (v1.8 deliberate exception; see spec.org §Demo mock in the public repo)
+mocks/msw/node_modules/
+mocks/msw/package-lock.json
+.demo-mock.pid
+.demo-mock.log
