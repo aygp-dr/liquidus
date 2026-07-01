@@ -26,17 +26,29 @@
 - ~Authorization: <key>~ bare → 401 (Bearer prefix required)
 - ~Authorization: Bearer <bad-key>~ → 401 (validated, not presence-only)
 
-*Path convention mock vs live (v1.13, live probe via LAN proxy :3002).* Rails classic ~/api/*~ list-endpoints and index-endpoints REQUIRE the ~.json~ extension for a JSON response; without it Rails' ~respond_to~ default sends HTML (or 302 to storefront). Show-endpoints for a single resource by id work with or without the extension (Rails infers content type from the request path pattern):
+*Path convention mock vs live (v1.13, SUPERSEDED by v1.14).* Earlier probe suggested the ~.json~ extension was required on list endpoints against Rails classic. The follow-up in v1.14 traced the real cause to SDK content-type parsing and refuted the ~.json~ requirement. See §Content-type parsing (v1.14) below. The v1.13 heuristic is dropped; consumers MUST NOT append ~.json~ based on ~SPREE_URL~ shape.
 
-- ~/api/products~ (list) → non-JSON (or 000 via curl -sf)
-- ~/api/products.json~ (list) → 200 JSON
-- ~/api/products/1~ (show by id) → 200 JSON (with or without ~.json~)
-- ~/api/products/1.json~ (show by id) → 200 JSON
-- ~/api/orders/mine.json~ → 200 JSON
-- ~/api/orders/current.json~ → 204 (empty guest cart)
-- Prism (~:4010~) → the extension is not part of the OAS path; ~/products.json~ returns 404 while ~/products~ returns 200.
+*Content-type parsing (v1.14, live probe follow-up).* Under Bearer auth, real Solidus 4.7 returns 200 JSON on the extensionless paths (~/api/products~, ~/api/orders/mine~, etc.). The apparent HTML-response bug in v1.13 was caused by an SDK bug (Faraday's content-type matcher was written as ~/\bjson$/~, which does NOT match ~application/json; charset=utf-8~ because the regex anchors on end-of-string). The three backends' actual Content-Type headers:
 
-*Normative consequence:* under ~LIQUIDUS_BACKEND=live~ (v2 draft) the CLI/TUI/MCP SDK layer MUST append ~.json~ to list-endpoint paths. Under ~mock~ (v1.x current default) the SDK MUST NOT append. Consumers that use the same SDK code path in both modes need this branch. The simplest way to gate it is on the presence of ~/api/~ in ~SPREE_URL~: if it ends with ~/api~, backend is Rails-classic and ~.json~ is required; if it does not, backend is Prism or MSW and ~.json~ is forbidden. This heuristic is normative for v1.13 as an interim; v2 will introduce a first-class ~LIQUIDUS_BACKEND~ discriminator.
+| Backend                        | Content-Type on ~/products~              | Matches ~/\bjson$/~ | Matches ~\bjson\b/~ |
+|--------------------------------+------------------------------------------+---------------------+---------------------|
+| Prism (~:4010~)                | ~application/problem+json~               | ✗                   | ✓                   |
+| Real Solidus (~:3002/api~)     | ~application/json; charset=utf-8~        | ✗                   | ✓                   |
+| Mock-solidus (~:3000/api~)     | ~application/json~                        | ✓                   | ✓                   |
+
+*Normative rule:* SDKs MUST accept any Content-Type where the word ~json~ appears bounded on either side by non-word characters (regex: ~\bjson\b/~), regardless of parameters (~charset=~, ~;~), structured-syntax suffix (~+json~ per RFC 6839), or vendor prefix (~application/vnd.api+json~). Rejecting a valid JSON response because of a charset parameter is a SDK bug, not a live-backend bug. The Ruby SDK reference at ~liquidus-006~ v0.1.3 corrects this.
+
+*Prism sends wrong Content-Type on 200 (v1.14, Prism-team observation).* Prism at ~:4010~ returns ~application/problem+json~ on the ~/products~ 200 response. RFC 7807 says ~problem+json~ is for error responses (4xx/5xx), not success bodies. This is a Prism configuration bug (or an ~examples:~ block in the OAS is tagged with the wrong content-type). Not spec-blocking — the widened content-type matcher handles it — but worth flagging to the mock team.
+
+*Base-URL path resolution (v1.15, primary bug behind the v1.14 HTML-response finding).* The content-type matcher fix in v1.14 was necessary but was fixing a *secondary* symptom. The primary cause of the HTML response was different: when the SDK's HTTP client library treats leading ~/~ in a resource path as absolute-from-host, a base URL like ~http://host/api~ has its ~/api~ prefix stripped and the request lands on the storefront path instead of the API. Real Solidus's storefront at ~/products~ serves HTML, which is what the SDK actually received.
+
+Normative rule (v1.15): SDKs MUST implement one of:
+1. **Trailing-slash + relative-path.** Base URL ends with ~/~ (e.g. ~http://host/api/~); resource paths passed without leading ~/~ (e.g. ~products~ not ~/products~). The client library's URL resolver merges them into ~http://host/api/products~.
+2. **Path-prefix preservation.** SDK parses ~SPREE_URL~ to extract host+port and base path separately, then constructs the full URL by concatenation. Language-idiomatic in Go and Rust; more verbose in Ruby.
+
+The reference implementation (~liquidus-006~ v0.1.3) uses approach 1: appends a trailing ~/~ to the base URL if missing and strips leading ~/~ from resource paths before passing to Faraday.
+
+A build repo that fails to implement one of these will 200-with-HTML against real Solidus (silent), and the v1.14 content-type widening does NOT catch it — the response is genuinely HTML, not JSON with a weird content-type. This is why v1.14's fix looked like it worked in isolation but didn't restore end-to-end behavior against ~:3002/api~.
 
 Second, sharper constraint, and the one actually worth the build teams' attention:
 
@@ -729,4 +741,6 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.10   | ~-e, --example <key>~ addition (from live-mock verify) | 2026-07-01 | MINOR     | Per-operation ~-e, --example <key>~ flag emits ~Prefer: example=<key>~ header, standard Prism example-selection mechanism. Reference: ~liquidus-006~ v0.1.1 on ~order get~. Mock team owns adding ~examples:~ blocks to OAS operations that need deterministic bodies. |
 | v1.11   | Env var canonicalization (mock-team coordination)      | 2026-07-01 | MINOR     | ~SPREE_URL~ + ~SPREE_TOKEN~ promoted to canonical env var names, aligning with the mock team's convention. ~LIQUIDUS_BASE_URL~ + ~LIQUIDUS_BEARER~ remain honored as compat aliases (SPREE_* wins where both are set). Precedence contract normative. Reference: ~liquidus-006~ v0.1.2 ~Config.from_env~. |
 | v1.12   | Live-Solidus auth-scheme truth table (from :3001 probe) | 2026-07-01 | MINOR     | §The actual constraint documents mock vs live validation contrast: real Solidus 4.7 validates the key value; stub literal MUST NOT be used against live. Auth-scheme truth table: ~Bearer <key>~ → 200; ~X-Spree-Token~ → 401 (REFUTED); ~?token=<key>~ query param → 200 (second channel). v2 draft's ~LIQUIDUS_AUTH_HEADER~ speculation replaced with ~LIQUIDUS_AUTH_MODE~ (~header~/~query~). |
-| v1.13   | Path convention: ~.json~ extension for Rails classic  | 2026-07-01 | MINOR     | Real Solidus ~/api/*~ list-endpoints REQUIRE ~.json~ extension for JSON; show-endpoints work either way; Prism 404s on ~.json~. Interim heuristic: if ~SPREE_URL~ ends in ~/api~, backend is Rails-classic — append ~.json~ on list paths. Verified via live probe through the LAN proxy at ~:3002~. |
+| v1.13   | Path convention: ~.json~ extension for Rails classic  | 2026-07-01 | MINOR     | Real Solidus ~/api/*~ list-endpoints REQUIRE ~.json~ extension for JSON; show-endpoints work either way; Prism 404s on ~.json~. Interim heuristic: if ~SPREE_URL~ ends in ~/api~, backend is Rails-classic — append ~.json~ on list paths. Verified via live probe through the LAN proxy at ~:3002~. **SUPERSEDED by v1.14.** |
+| v1.14   | Content-type parsing rule (supersedes v1.13)          | 2026-07-01 | MINOR     | v1.13 blamed the wrong layer. Real cause: SDK content-type matcher ~/\bjson$/~ rejected ~application/json; charset=utf-8~ (real Solidus) and ~application/problem+json~ (Prism). Normative rule: SDKs MUST use ~\bjson\b/~ (word-bounded) matcher. Also flags a Prism config bug (~problem+json~ on 200). ~.json~ extension is NOT required — dropped from normative shape. |
+| v1.15   | Base-URL path resolution (primary bug behind v1.14)   | 2026-07-01 | MINOR     | v1.14's content-type fix was necessary but secondary. Primary cause of the HTML response was Faraday (and similar clients) treating leading ~/~ in resource paths as absolute-from-host, stripping ~/api~ from ~SPREE_URL=http://host/api~. Requests landed on storefront ~/products~ (HTML), not API ~/api/products~ (JSON). Normative: SDK either uses trailing-slash + relative paths, or parses base URL to preserve path prefix. Verified end-to-end: reference CLI reaches real Solidus and returns real bodies; order R123456789 → state=complete. |
