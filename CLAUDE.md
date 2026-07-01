@@ -43,13 +43,29 @@ Anything else is a smell. If you need to add a diagram, tangle it from `spec.org
 
 ## Build repo scope (build-repo mode)
 
-Each `liquidus-00x` repo takes only `README.org`, `spec.org`, and `CLAUDE.md` as input (copied in, never symlinked to a live public checkout) and produces a working implementation of a single grind unit. On completion each build repo lands a `FEEDBACK.md` at its root enumerating:
+Each `liquidus-00x` repo takes only `README.org`, `spec.org`, and `CLAUDE.md` as input (copied in, never symlinked to a live public checkout) and produces a working implementation of a single grind unit.
 
-- Sections of the spec that were underspecified or contradictory.
-- Sections that were harder to implement than they should have been, and why.
-- Refutation conditions from `spec.org` that fired, and what they revealed.
+`FEEDBACK.md` is a **requirements/PRD clarity report**, not an implementation diary. On completion each build repo lands one at its root, structured as:
+
+1. **Ambiguities** — spec sentences that admitted more than one reading. Quote the sentence, name the two readings, state which the build chose.
+2. **Missing requirements** — decisions the implementer had to make that the spec did not cover. What was decided, and what a future spec revision should say.
+3. **Contradictions** — places where two sections of the spec pulled in different directions. Cite both.
+4. **Refutation firings** — refutation conditions from `spec.org` that were hit, and what they revealed about the spec's assumptions.
+5. **Non-issues** — sections that read cleanly and translated to code without friction. This is signal, not filler; it prevents the next revision from over-editing sections that already work.
 
 The public spec revs (v0.1, v0.2, …) accumulate these — never a hidden branch, never a private consensus. The build teams grade the spec, not the other way around.
+
+## The cycle (strict)
+
+For each `n` in 1..5:
+
+1. Copy the current public spec (at whatever version tag is head) into `liquidus-00n`.
+2. Implement the grind unit for `liquidus-00n`.
+3. Land `FEEDBACK.md` at the root of `liquidus-00n`.
+4. **In the public repo:** read `FEEDBACK.md`, revise `spec.org`, bump version (v0.n), commit, tag, push. Do this *before* starting `liquidus-00(n+1)`.
+5. Only then bootstrap `liquidus-00(n+1)` — against the updated spec, not v0.
+
+Skipping step 4 collapses the whole regime: a build repo built against an unrevised spec cannot discover a bug the previous build already found. The feedback-then-revise-then-next ordering is the point.
 
 ## Build sequence
 
