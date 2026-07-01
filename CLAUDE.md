@@ -55,6 +55,27 @@ Each `liquidus-00x` repo takes only `README.org`, `spec.org`, and `CLAUDE.md` as
 
 The public spec revs (v0.1, v0.2, …) accumulate these — never a hidden branch, never a private consensus. The build teams grade the spec, not the other way around.
 
+## Revision discipline (what to fold in, what to drop)
+
+Between builds the spec will oscillate — one team's FEEDBACK.md will push toward over-specification (add sections, prescribe libraries, fix decisions the spec left open on purpose); the next team's FEEDBACK.md will push back toward under-specification (delete constraints, restore optionality). Both directions are normal. The correction rule is:
+
+**Only these things get promoted into `spec.org`:**
+
+- **Boundary conditions** — what the system does at the edge of its stated range (stateful vs stateless, mock vs live, auth-present vs auth-absent). Refutation conditions live here.
+- **Invariants** — properties that must hold across every implementation of a grind unit (governance tuple always present, spec SHA always pinned, bearer never a real token).
+- **Contracts** — the shape of the interface between grind units (SDK ↔ mock, CLI ↔ SDK, MCP tool result ↔ agent). Not the internals of either side.
+- **Schemas** — the actual data shapes: request bodies, response bodies, config files, environment-variable formats.
+- **Specifications** of behavior at the observable interface — what a caller sees, not how the callee produces it.
+
+**These things do NOT get promoted, even when a FEEDBACK.md asks:**
+
+- Choice of library, framework, or language within a grind unit (`typer` vs `click`, `cobra` vs `urfave/cli`) — implementation detail. The build repo is the right place for it; the spec is not.
+- CLI subcommand phrasing (`liquidus products list` vs `liquidus product list`) — bikeshed unless it violates a contract.
+- File layout inside a build repo — the build repo's own concern.
+- "Nice to have" features surfaced during a build. If the spec didn't call for it and no contract forces it, it stays out.
+
+If a FEEDBACK.md item doesn't fit one of the promotable categories above, note it in a `docs/revision-notes.md` inside the *build* repo and leave the public spec alone. Spec bloat is the failure mode we are actively defending against.
+
 ## The cycle (strict)
 
 For each `n` in 1..5:
