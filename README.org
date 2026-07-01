@@ -45,7 +45,7 @@ Builds happen strictly in order — ~liquidus-00(n+1)~ does not start until ~liq
 | v0      | Initial hand-authored spec           | (initial)      | 2026-07-01 |
 | v1.0    | liquidus-001 (mocking) feedback      | MAJOR          | 2026-07-01 |
 | v1.1    | liquidus-002 (Python) feedback       | MINOR          | 2026-07-01 |
-| v1.2    | liquidus-003 (Go) feedback           | pending        | pending    |
+| v1.2    | liquidus-003 (Go) feedback           | MINOR          | 2026-07-01 |
 | v1.3    | liquidus-004 (TypeScript) feedback   | pending        | pending    |
 | v1.4    | liquidus-005 (MCP) feedback          | pending        | pending    |
 | v1.5    | liquidus-006 (Ruby CLI/TUI) feedback | pending        | pending    |
