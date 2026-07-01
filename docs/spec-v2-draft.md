@@ -35,7 +35,7 @@ The following are wire-breaking against v1 consumers built to `mock` behavior. T
 
 1. **New env var `LIQUIDUS_BACKEND`.** Values: `mock` (default, v1-compat) or `live`. When `live`, the v1.2 cart-bootstrap placeholder, the v1.1 statelessness-tolerant F3 assertion, and the v1.4 F5 `provenance.source = "prism-mock"` claim are all wrong.
 
-2. **New env var `LIQUIDUS_AUTH_HEADER`.** Values: `bearer` (default, matches the reified OAS's `securitySchemes.api-key = http bearer`) or `x-spree-token` (Solidus classic-API convention, `X-Spree-Token: <api-key>`). The reified OAS documents Bearer; running Solidus 4.x classic serves `X-Spree-Token`. Both are Solidus. A consumer MUST pick one at startup.
+2. **New env var `LIQUIDUS_AUTH_MODE`** (replaces the ~~`LIQUIDUS_AUTH_HEADER`~~ proposal — see F-B: `X-Spree-Token` refuted). Values: `header` (default; `Authorization: Bearer <key>` — the only working header form) or `query` (URL query param `?token=<key>`, second channel real Solidus honors). NOT a security recommendation; both are wire-level channels Solidus 4.7 accepts.
 
 3. **Exit code 8 added.** v1.1's table (0/3/4/5/6/7) extends: `403 → exit 8` ("forbidden — role-denied, not credential-missing"). In v1 mock mode Prism could never emit 403 because it did presence-only auth; in live mode a role-scoped API key hits 403 constantly, and conflating it with 401 confuses users about whether they need a token or a *different* token.
 
@@ -228,14 +228,34 @@ Late additions after actually hitting `:4010`, `:3000/api`, and (attempting) `:3
 
 Draft leans toward option 1 with option 2 as a fallback heuristic when the env var is unset. Confirm.
 
-### F-B. `X-Spree-Token` remains untested; likely unsupported by these mocks
+### F-B. `X-Spree-Token` — **REFUTED against real Solidus 4.7**
 
-Both reachable mocks (`:4010`, `:3000/api`) return 401 on `X-Spree-Token: <stub>` and 200 on `Authorization: Bearer <stub>`. The v2 draft's introduction of `LIQUIDUS_AUTH_HEADER` (bearer vs x-spree-token) was speculative and cannot be confirmed against any of the currently reachable targets.
+Live probe against `:3001` (Solidus 4.7 legacy `/api/*`, `libvips` blocker cleared) produced this auth-scheme truth table:
 
-Actions:
+| Method                                    | Result | Note                                                    |
+|-------------------------------------------|--------|---------------------------------------------------------|
+| no auth                                   | 401    | as expected                                             |
+| `Authorization: Bearer <key>`             | 200 ✅ | matches OAS `securitySchemes.api-key = http bearer`     |
+| `X-Spree-Token: <key>`                    | 401 ❌ | **REFUTED — was speculation, now confirmed dead**       |
+| `Authorization: <key>` (bare, no Bearer)  | 401    | prefix required                                         |
+| `?token=<key>` (query param)              | 200 ✅ | **new — a third valid auth channel**                    |
+| `Authorization: Bearer <bad-key>`         | 401    | key is validated, not presence-only (unlike Prism)      |
 
-- **Downgrade `LIQUIDUS_AUTH_HEADER` from normative to conditional.** Add: "REQUIRED only when the target backend documents `X-Spree-Token` as its accepted admin-scheme; otherwise consumers SHOULD default to `Authorization: Bearer` and only introduce the flag if a target rejects it."
-- **Add a startup probe.** Consumer sends one dummy request with Bearer; if 401, retries with X-Spree-Token; if either wins, use it going forward. This is an ergonomic escape hatch (v2 candidate refutation: if the probe strategy misidentifies the header, the whole session degrades — must be observable via the F5 `provenance.detected_auth_header` field).
+**Normative consequences for v2:**
+
+1. **`LIQUIDUS_AUTH_HEADER` is removed from v2's normative surface.** The two options (bearer vs x-spree-token) collapse to one confirmed option (bearer). No consumer needs to select between them, so no env var is needed. The v2 draft's earlier speculation on this env var was wrong and is deleted.
+
+2. **New: `LIQUIDUS_AUTH_MODE`** with values `header` (default; `Authorization: Bearer <key>`) or `query` (URL query param `?token=<key>`). Useful when consumer environments make header injection hard — a browser link, a `<img src>`, a webhook without header control. NOT a security recommendation; simply the second wire-level auth channel that a real Solidus honors.
+
+3. **Real Solidus validates the key value.** Prism (mock) does presence-only `checkSecurity` — any bearer-shaped string works. Real Solidus 4.7 rejects `<bad-key>`. Consumers CANNOT rely on the stub literal against live; the v1.4 §MCP-server bearer env "refuse-stub-literal-on-live" check MUST be enforced. Under `LIQUIDUS_BACKEND=live` an MCP server started with `SPREE_TOKEN=liquidus-dev-stub` refuses to launch.
+
+4. **The v1.2 bearer tri-state (unset → stub; empty → no header; string → verbatim) still holds** for the `Authorization` header channel. Under `LIQUIDUS_AUTH_MODE=query`, empty-string means the query param is omitted; string means `?token=<value>` gets appended.
+
+5. **Startup probe** (previously proposed as an ergonomic escape hatch) is unnecessary. Bearer is the only working header form; live consumers use it or fail immediately with a clean 401.
+
+### F-B'. Reachability note
+
+Verification of F-B was provided by the mock team from their side; my sandbox still cannot reach `:3001` even with 30-second timeouts (TCP opens, HTTP hangs 30s → curl 000). This is a network-path constraint from the sandbox, unrelated to libvips. The refutations above are landed based on the user-provided truth table, not on independent verification from this sandbox. If a future v2 revision needs to re-test any of these, someone with `:3001` reachability MUST run the probes.
 
 ### F-C. Env-var naming coordinated with mock team
 

@@ -17,6 +17,15 @@
 
 - *Refuted if*: Prism starts validating token authenticity against an external authority, or a build team needs to demonstrate real authz-denial behavior (403 vs 401 branching tied to role, not just presence/absence of a header). Neither is true of Solidus's ~api-key~ scheme as specified — it's presence-only at the contract level.
 
+*Mock vs live auth-validation contrast (v1.12, from real-Solidus probe).* Prism does presence-only checkSecurity (any bearer-shaped string works). Real Solidus 4.7 validates the key value — ~Bearer <bad-key>~ returns 401, not 200. This is not wire-breaking against v1 (the OAS ~api-key~ scheme documents Bearer either way), but it means the stub literal ~liquidus-dev-stub~ MUST NOT be used against a live backend. Under ~LIQUIDUS_BACKEND=live~ (v2 draft) an MCP server started with ~SPREE_TOKEN=liquidus-dev-stub~ refuses to launch — extends v1.4's refuse-empty rule.
+
+*Real Solidus auth-scheme truth table (v1.12, live probe against Solidus 4.7).*
+- ~Authorization: Bearer <key>~ → 200 (canonical)
+- ~X-Spree-Token: <key>~ → 401 (spec v2 draft speculation REFUTED; do not implement)
+- ~?token=<key>~ query param → 200 (second valid channel)
+- ~Authorization: <key>~ bare → 401 (Bearer prefix required)
+- ~Authorization: Bearer <bad-key>~ → 401 (validated, not presence-only)
+
 Second, sharper constraint, and the one actually worth the build teams' attention:
 
 - *Prism's mock server is stateless per request.* ~POST /orders~ then ~GET /orders/{number}~ do not share state. Each response is independently generated from ~examples~ (static mode) or ~json-schema-faker~ against the schema (dynamic mode, ~-d~). Any consumer that assumes create-then-read consistency (an order that persists across the session, a cart that accumulates line items) will not get it for free.
@@ -707,3 +716,4 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.9    | Final-round: liquidus-009 (Rust) + liquidus-010 (Zig) | 2026-07-01 | MINOR     | Thin-wrapper pattern: child-process HTTP (curl/wget) is a legitimate approach when stdlib is churning; ~--version~ vs ~spec-sha~ subcommand reconciled (either MUST expose both facts, consumer never invokes two commands); JSON output MAY be single-line or pretty-printed (both conformant); ~spec-sha~ semantics clarified as compile-time value. Closes the v1 cycle with 10 build repos across 6 languages (JS, Python, Go, TS, Ruby, Rust, Zig). |
 | v1.10   | ~-e, --example <key>~ addition (from live-mock verify) | 2026-07-01 | MINOR     | Per-operation ~-e, --example <key>~ flag emits ~Prefer: example=<key>~ header, standard Prism example-selection mechanism. Reference: ~liquidus-006~ v0.1.1 on ~order get~. Mock team owns adding ~examples:~ blocks to OAS operations that need deterministic bodies. |
 | v1.11   | Env var canonicalization (mock-team coordination)      | 2026-07-01 | MINOR     | ~SPREE_URL~ + ~SPREE_TOKEN~ promoted to canonical env var names, aligning with the mock team's convention. ~LIQUIDUS_BASE_URL~ + ~LIQUIDUS_BEARER~ remain honored as compat aliases (SPREE_* wins where both are set). Precedence contract normative. Reference: ~liquidus-006~ v0.1.2 ~Config.from_env~. |
+| v1.12   | Live-Solidus auth-scheme truth table (from :3001 probe) | 2026-07-01 | MINOR     | §The actual constraint documents mock vs live validation contrast: real Solidus 4.7 validates the key value; stub literal MUST NOT be used against live. Auth-scheme truth table: ~Bearer <key>~ → 200; ~X-Spree-Token~ → 401 (REFUTED); ~?token=<key>~ query param → 200 (second channel). v2 draft's ~LIQUIDUS_AUTH_HEADER~ speculation replaced with ~LIQUIDUS_AUTH_MODE~ (~header~/~query~). |
