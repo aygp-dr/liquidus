@@ -26,6 +26,18 @@
 - ~Authorization: <key>~ bare → 401 (Bearer prefix required)
 - ~Authorization: Bearer <bad-key>~ → 401 (validated, not presence-only)
 
+*Path convention mock vs live (v1.13, live probe via LAN proxy :3002).* Rails classic ~/api/*~ list-endpoints and index-endpoints REQUIRE the ~.json~ extension for a JSON response; without it Rails' ~respond_to~ default sends HTML (or 302 to storefront). Show-endpoints for a single resource by id work with or without the extension (Rails infers content type from the request path pattern):
+
+- ~/api/products~ (list) → non-JSON (or 000 via curl -sf)
+- ~/api/products.json~ (list) → 200 JSON
+- ~/api/products/1~ (show by id) → 200 JSON (with or without ~.json~)
+- ~/api/products/1.json~ (show by id) → 200 JSON
+- ~/api/orders/mine.json~ → 200 JSON
+- ~/api/orders/current.json~ → 204 (empty guest cart)
+- Prism (~:4010~) → the extension is not part of the OAS path; ~/products.json~ returns 404 while ~/products~ returns 200.
+
+*Normative consequence:* under ~LIQUIDUS_BACKEND=live~ (v2 draft) the CLI/TUI/MCP SDK layer MUST append ~.json~ to list-endpoint paths. Under ~mock~ (v1.x current default) the SDK MUST NOT append. Consumers that use the same SDK code path in both modes need this branch. The simplest way to gate it is on the presence of ~/api/~ in ~SPREE_URL~: if it ends with ~/api~, backend is Rails-classic and ~.json~ is required; if it does not, backend is Prism or MSW and ~.json~ is forbidden. This heuristic is normative for v1.13 as an interim; v2 will introduce a first-class ~LIQUIDUS_BACKEND~ discriminator.
+
 Second, sharper constraint, and the one actually worth the build teams' attention:
 
 - *Prism's mock server is stateless per request.* ~POST /orders~ then ~GET /orders/{number}~ do not share state. Each response is independently generated from ~examples~ (static mode) or ~json-schema-faker~ against the schema (dynamic mode, ~-d~). Any consumer that assumes create-then-read consistency (an order that persists across the session, a cart that accumulates line items) will not get it for free.
@@ -717,3 +729,4 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.10   | ~-e, --example <key>~ addition (from live-mock verify) | 2026-07-01 | MINOR     | Per-operation ~-e, --example <key>~ flag emits ~Prefer: example=<key>~ header, standard Prism example-selection mechanism. Reference: ~liquidus-006~ v0.1.1 on ~order get~. Mock team owns adding ~examples:~ blocks to OAS operations that need deterministic bodies. |
 | v1.11   | Env var canonicalization (mock-team coordination)      | 2026-07-01 | MINOR     | ~SPREE_URL~ + ~SPREE_TOKEN~ promoted to canonical env var names, aligning with the mock team's convention. ~LIQUIDUS_BASE_URL~ + ~LIQUIDUS_BEARER~ remain honored as compat aliases (SPREE_* wins where both are set). Precedence contract normative. Reference: ~liquidus-006~ v0.1.2 ~Config.from_env~. |
 | v1.12   | Live-Solidus auth-scheme truth table (from :3001 probe) | 2026-07-01 | MINOR     | §The actual constraint documents mock vs live validation contrast: real Solidus 4.7 validates the key value; stub literal MUST NOT be used against live. Auth-scheme truth table: ~Bearer <key>~ → 200; ~X-Spree-Token~ → 401 (REFUTED); ~?token=<key>~ query param → 200 (second channel). v2 draft's ~LIQUIDUS_AUTH_HEADER~ speculation replaced with ~LIQUIDUS_AUTH_MODE~ (~header~/~query~). |
+| v1.13   | Path convention: ~.json~ extension for Rails classic  | 2026-07-01 | MINOR     | Real Solidus ~/api/*~ list-endpoints REQUIRE ~.json~ extension for JSON; show-endpoints work either way; Prism 404s on ~.json~. Interim heuristic: if ~SPREE_URL~ ends in ~/api~, backend is Rails-classic — append ~.json~ on list paths. Verified via live probe through the LAN proxy at ~:3002~. |
