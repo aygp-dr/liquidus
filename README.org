@@ -91,8 +91,9 @@ Builds happen strictly in order — ~liquidus-00(n+1)~ does not start until ~liq
 | v1.6    | liquidus-007 (Ruby SDK) feedback     | MINOR          | 2026-07-01 |
 | v1.7    | liquidus-008 (Rack shim) feedback    | MINOR          | 2026-07-01 |
 | v1.8    | CLI UX audit + demo-mock exception   | MINOR          | 2026-07-01 |
+| v1.9    | liquidus-009 (Rust) + liquidus-010 (Zig) | MINOR      | 2026-07-01 |
 
-v1.7 closes the v1 grind cycle. v1.8 adds the CLI UX contract (lucasfcosta audit) + the deliberate demo-mock boundary exception documented in [[#demo-mock-exception][§Demo mock exception]] below. Every revision traces to a specific FEEDBACK.md observation. One major bump (v0 → v1.0) — the reified OAS was v1 classic, not v2 storefront/platform as v0 assumed. Everything after has been additive.
+v1.9 closes the extended cycle: 10 build repos across 6 languages (JS, Python, Go, TS, Ruby, Rust, Zig) and 3 surface types (CLI, TUI, MCP server, SDK, Rack middleware). Every revision traces to a specific FEEDBACK.md observation. One major bump (v0 → v1.0) — the reified OAS was v1 classic, not v2 storefront/platform as v0 assumed. Everything after has been additive.
 
 * Read next
 
