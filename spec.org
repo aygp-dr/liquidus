@@ -99,7 +99,9 @@ LIQUIDUS_BEARER=liquidus-dev-stub
 
 Not built by default — named here so a team doesn't reinvent it mid-grind. A small in-process layer that intercepts SDK calls, keeps a local map of ~order_number → last-known state~, and forces Prism's response selection via the ~Prefer: example=<key>~ header (or ~__example~ query param) so a client-side "order" stays self-consistent across a demo session. This is client-side state pretending to be server state — acceptable for a fixture-only repo, wrong to ship past it.
 
-* Component: CLI (Go)
+* Component: CLI (Go) — v0-era, HISTORICAL (superseded by §CLI surface in v1.0)
+
+/Retained for provenance. §CLI surface (added in v1.0 from L7 design) is the normative section. This one describes the earlier "one subcommand per tag" model that liquidus-001 refuted (Orders tag spans two customer-flow stages) — see spec revisions v1.0 and v1.1./
 
 Command surface maps directly to the spec's 33 tags (verified by ~gmake tags~ against the reified spec) rather than inventing a taxonomy — reduces spec-to-command translation to a mechanical exercise, which is the point of grinding against a contract instead of a product.
 
@@ -144,7 +146,9 @@ func main() {
 }
 #+end_src
 
-* Component: TUI
+* Component: TUI — v0-era, HISTORICAL (superseded by §TUI slash commands in v1.0)
+
+/Retained for provenance. §TUI slash commands (added in v1.0) enumerates the 27 + 4 palette-hygiene commands normatively./
 
 Same SDK, same stub auth, different surface: a slash-command palette over a list/detail split view, not a form-heavy admin clone.
 
@@ -165,7 +169,9 @@ flowchart LR
   Cmd --> Detail
 #+end_src
 
-* Component: MCP server
+* Component: MCP server — v0-era, HISTORICAL (superseded by §MCP tool/resource/template surface in v1.0)
+
+/Retained for provenance. §MCP tool/resource/template surface (added in v1.0) enumerates the 27 tools, 16 resources, 7 templates normatively./
 
 Tool surface is a curated subset, not all 103 operations exposed 1:1 — an MCP tool list that size is unusable for an agent's context and defeats the purpose of grinding a clean interface.
 
@@ -311,6 +317,10 @@ Language-agnostic. Every subcommand named here MUST appear in every downstream C
 | ~liquidus order shipments~          | Shipments             | ~<order-number>~ (positional, string); ~-o, --order-token <string>~                            | List order-level shipment state (order-level, not carrier).        | post-order  |
 
 *Global flags* (apply to every subcommand): ~--base-url <string>~ (defaults to ~$LIQUIDUS_BASE_URL~), ~--token <string>~ (bearer stub, defaults to ~$LIQUIDUS_BEARER~), ~--json~ (bool, raw passthrough output — default), ~--table~ (bool, pretty-print via the framework's table renderer), ~--stage~ (bool, print which flow stage this subcommand belongs to and exit).
+
+*Cart-stage bootstrap* (v1.1). ~liquidus cart show~ without an ~-o, --order-token~ MUST create a fresh order and mint a token before returning the (empty) cart. The token MUST be printed to stderr in a machine-readable form (~LIQUIDUS_ORDER_TOKEN=<token>~) so downstream shell sessions can pick it up. This is not a "create-if-absent silent" behavior — it is explicit bootstrap. Documented here because liquidus-002 FEEDBACK.md §1.2 revealed the v1.0 surface had no bootstrap step.
+
+*Error-response contract* (v1.1). Every subcommand MUST map upstream status codes to exit codes as follows: 200/2xx → exit 0; 401 → exit 3 ("unauthorized — check LIQUIDUS_BEARER"); 404 → exit 4 ("not found"); 4xx other → exit 5; 5xx → exit 6; connect/timeout → exit 7. The stderr message MUST be a single line naming the exit code, the upstream path, and the upstream status. Full response body goes to stderr only under ~--verbose~. Consumers built to v1.0 that raise unfriendly tracebacks are not conformant to v1.1.
 
 * TUI slash commands
 
@@ -489,7 +499,9 @@ Carrier-side integrations — label generation, tracking-number lookup against U
 
 ** Stateful mock
 
-Prism does not persist state across requests, and this spec does not ask it to. The session-shim grind unit (~liquidus-008~) is the correct home for demo-mode statefulness, not the mock server. As of v1.0 the shim is promoted from optional to REQUIRED for any consumer past the payment stage — see §Customer flow, Stage 4 refutation.
+Prism does not persist state across requests, and this spec does not ask it to. The session-shim grind unit (~liquidus-008~) is the correct home for demo-mode statefulness, not the mock server.
+
+As of v1.1 (liquidus-002 FEEDBACK.md §4) the shim is REQUIRED at the CART stage, not merely at payment. Reason: adding a line item to a Prism-mocked cart and then reading the cart back returns divergent bodies — the statelessness bites at cart-mutate → cart-show, which is the first customer-observable inconsistency. A consumer that walks past ~liquidus cart add~ without a shim will not survive the customer-flow tests.
 
 ** Live-Solidus verification examples
 
@@ -544,7 +556,7 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 |---------+--------------------------------------------------+------------+----------------+--------------------------------------------------------------------------------------|
 | v0      | Initial hand-authored spec                       | 2026-07-01 | (initial)      | fixtures F1–F5 (v2 API assumption), 8-build validation plan, style-guide adoption    |
 | v1.0    | liquidus-001 (mocking) feedback                  | 2026-07-01 | MAJOR          | v1 classic-API paths; F1–F4 rewritten; F6–F9 added; storefront/platform split removed; §Customer flow + §CLI surface + §TUI surface + §MCP surface; session shim promoted to required-at-payment; Cmd-J / admin / carrier / stateful-mock / live-Solidus non-goals |
-| v1.1    | liquidus-002 (Python CLI/TUI) feedback           | pending    | pending        |                                                                                      |
+| v1.1    | liquidus-002 (Python CLI/TUI) feedback           | 2026-07-01 | MINOR          | session-shim requirement moved from payment stage to CART stage; §Component: CLI/TUI/MCP v0-era sections marked HISTORICAL; §CLI surface adds cart-stage bootstrap semantics for ~liquidus cart show~; §CLI surface adds error-response contract (exit-code table) |
 | v1.2    | liquidus-003 (Go CLI/TUI) feedback               | pending    | pending        |                                                                                      |
 | v1.3    | liquidus-004 (TypeScript CLI/TUI) feedback       | pending    | pending        |                                                                                      |
 | v1.4    | liquidus-005 (MCP server) feedback               | pending    | pending        |                                                                                      |
