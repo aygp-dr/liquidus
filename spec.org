@@ -124,9 +124,21 @@ npx --yes @stoplight/prism-cli@latest mock \
 Auth stub, shared across all three consumers via env, never a real Solidus token:
 
 #+begin_src bash :tangle .env.example
-LIQUIDUS_BASE_URL=http://localhost:4010
-LIQUIDUS_BEARER=liquidus-dev-stub
+# Canonical (v1.11+, aligned with mock-team convention):
+SPREE_URL=http://localhost:4010
+SPREE_TOKEN=liquidus-dev-stub
+
+# Compat aliases (v1.0 baseline, still honored when SPREE_* absent):
+# LIQUIDUS_BASE_URL=http://localhost:4010
+# LIQUIDUS_BEARER=liquidus-dev-stub
 #+end_src
+
+*Env-var precedence contract (v1.11).* Consumers MUST honor this order:
+1. ~SPREE_URL~ (canonical) beats ~LIQUIDUS_BASE_URL~ (compat alias) beats built-in default.
+2. ~SPREE_TOKEN~ (canonical) beats ~LIQUIDUS_BEARER~ (compat alias) beats stub literal ~liquidus-dev-stub~.
+3. The v1.2 bearer tri-state (unset → stub literal; ~""~ → no ~Authorization~ header sent; string → verbatim) applies to whichever env var pair wins. Explicit-empty on the winner MUST NOT fall through to the loser — that would defeat the "reproduce F4a without unsetting env" use case.
+
+Reference implementation: ~liquidus-006~ v0.1.2 on ~Config.from_env~.
 
 ** Session shim (REQUIRED at cart stage — see v1.1 refutation firing)
 :PROPERTIES:
@@ -694,3 +706,4 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.8    | CLI UX audit (lucasfcosta) + demo-mock exception | 2026-07-01 | MINOR          | §CLI UX contract (v1.8): help-with-examples normative, typo suggestions (exit 2), NO_COLOR + non-TTY discipline, ~--version~ prints SPEC_SHA, structured JSON error object; anti-pattern fixes (cart-bootstrap token also to stdout; ~-v~ renamed to ~-w~ on products get); wizard-mode and ~.liquidusrc~ explicitly rejected. §Demo mock in the public repo: boundary exception documented for ~mocks/msw/~ + ~demos/~ + ~.mcp.json~. |
 | v1.9    | Final-round: liquidus-009 (Rust) + liquidus-010 (Zig) | 2026-07-01 | MINOR     | Thin-wrapper pattern: child-process HTTP (curl/wget) is a legitimate approach when stdlib is churning; ~--version~ vs ~spec-sha~ subcommand reconciled (either MUST expose both facts, consumer never invokes two commands); JSON output MAY be single-line or pretty-printed (both conformant); ~spec-sha~ semantics clarified as compile-time value. Closes the v1 cycle with 10 build repos across 6 languages (JS, Python, Go, TS, Ruby, Rust, Zig). |
 | v1.10   | ~-e, --example <key>~ addition (from live-mock verify) | 2026-07-01 | MINOR     | Per-operation ~-e, --example <key>~ flag emits ~Prefer: example=<key>~ header, standard Prism example-selection mechanism. Reference: ~liquidus-006~ v0.1.1 on ~order get~. Mock team owns adding ~examples:~ blocks to OAS operations that need deterministic bodies. |
+| v1.11   | Env var canonicalization (mock-team coordination)      | 2026-07-01 | MINOR     | ~SPREE_URL~ + ~SPREE_TOKEN~ promoted to canonical env var names, aligning with the mock team's convention. ~LIQUIDUS_BASE_URL~ + ~LIQUIDUS_BEARER~ remain honored as compat aliases (SPREE_* wins where both are set). Precedence contract normative. Reference: ~liquidus-006~ v0.1.2 ~Config.from_env~. |

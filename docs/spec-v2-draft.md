@@ -211,6 +211,38 @@ Promoted from v0's `§Explicit non-goals::Web-context "Jump" command`:
 
 ---
 
+## Findings from the 2026-07-01 probe of your infrastructure
+
+Late additions after actually hitting `:4010`, `:3000/api`, and (attempting) `:3001`. All three of these change the shape of v2, so they belong in the draft rather than in the "open questions" bucket.
+
+### F-A. Two mocks serve two API generations
+
+- **`:4010`** (canonical Prism mock) — v1 classic Spree OAS. Response bodies are flat: `{count, products: [{id, name, display_price, ...}]}`. Paths: `/products`, `/orders/mine`.
+- **`:3000/api`** (mock-solidus, previously unprobed by me) — v2 JSONAPI shape: `{data: [{id, type: "product", attributes: {name, sku, price}}], meta: {...}}`. Curated data ("Solidus T-Shirt", "SOL-TSHIRT", "$19.99"), not schema-noise. Paths prefixed with `/api/`.
+
+**Implication for v2:** the SDK layer (owned by another team, coord point) MUST adapt to both response shapes. This is not "the CLI reads different envs and calls it a day" — the body parser has to know whether it's expecting `.products[0].name` (v1 flat) or `.data[0].attributes.name` (v2 JSONAPI). Options for v2:
+
+1. **`LIQUIDUS_API_GENERATION` env** (`v1` | `v2`, default detected from response shape on first call). Consumer picks explicitly or auto-detects. Adds startup latency (probe call) unless declared.
+2. **URL-path-prefix heuristic.** `SPREE_URL` ending in `/api/` → v2 JSONAPI; else → v1 flat. Zero startup cost but wrong when someone deploys v2 on a non-`/api/`-prefixed URL. Fragile.
+3. **Two SDKs.** `liquidus-sdk-v1` and `liquidus-sdk-v2`, consumers pick at build time. Cleanest, most work.
+
+Draft leans toward option 1 with option 2 as a fallback heuristic when the env var is unset. Confirm.
+
+### F-B. `X-Spree-Token` remains untested; likely unsupported by these mocks
+
+Both reachable mocks (`:4010`, `:3000/api`) return 401 on `X-Spree-Token: <stub>` and 200 on `Authorization: Bearer <stub>`. The v2 draft's introduction of `LIQUIDUS_AUTH_HEADER` (bearer vs x-spree-token) was speculative and cannot be confirmed against any of the currently reachable targets.
+
+Actions:
+
+- **Downgrade `LIQUIDUS_AUTH_HEADER` from normative to conditional.** Add: "REQUIRED only when the target backend documents `X-Spree-Token` as its accepted admin-scheme; otherwise consumers SHOULD default to `Authorization: Bearer` and only introduce the flag if a target rejects it."
+- **Add a startup probe.** Consumer sends one dummy request with Bearer; if 401, retries with X-Spree-Token; if either wins, use it going forward. This is an ergonomic escape hatch (v2 candidate refutation: if the probe strategy misidentifies the header, the whole session degrades — must be observable via the F5 `provenance.detected_auth_header` field).
+
+### F-C. Env-var naming coordinated with mock team
+
+Mock team's convention: `SPREE_URL` / `SPREE_TOKEN`. Landed in spec v1.11 (MINOR) with `LIQUIDUS_*` as compat aliases. This is not a v2 concern (already resolved in v1 line) but I'm noting it here so a v2 reviewer doesn't propose the SAME env vars again from scratch.
+
+**Normative env-var precedence for v2:** `SPREE_URL` > `LIQUIDUS_BASE_URL` > built-in default. `SPREE_TOKEN` > `LIQUIDUS_BEARER` > `liquidus-dev-stub`. The v1.2 bearer tri-state applies to whichever wins.
+
 ## Open questions (asked to whoever handles v2 ratification)
 
 1. **Which Solidus version(s)?** Draft assumes 4.7 (your instance). If v2 should cover 4.6 or 4.8+, `backend` enum needs to be flexible ("`solidus-4.6`", "`solidus-4.7`", "`solidus-4.8`") — currently I wrote it that way, but confirm the version-detection endpoint. `X-Runtime-Version` was a guess; needs live probe.

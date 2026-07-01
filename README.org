@@ -93,6 +93,7 @@ Builds happen strictly in order — ~liquidus-00(n+1)~ does not start until ~liq
 | v1.8    | CLI UX audit + demo-mock exception   | MINOR          | 2026-07-01 |
 | v1.9    | liquidus-009 (Rust) + liquidus-010 (Zig) | MINOR      | 2026-07-01 |
 | v1.10   | ~-e, --example <key>~ (Prism Prefer)     | MINOR      | 2026-07-01 |
+| v1.11   | ~SPREE_URL~/~SPREE_TOKEN~ canonicalized  | MINOR      | 2026-07-01 |
 
 v1.9 closes the extended cycle: 10 build repos across 6 languages (JS, Python, Go, TS, Ruby, Rust, Zig) and 3 surface types (CLI, TUI, MCP server, SDK, Rack middleware). Every revision traces to a specific FEEDBACK.md observation. One major bump (v0 → v1.0) — the reified OAS was v1 classic, not v2 storefront/platform as v0 assumed. Everything after has been additive.
 
