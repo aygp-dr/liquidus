@@ -1,3 +1,8 @@
 # Reified upstream spec — tracked by pointer (SOLIDUS_SPEC_SHA in GNUmakefile),
 # not by payload. Regenerate any time with: gmake spec
 .spec-cache/
+
+# Live-Solidus verification examples read from a git-ignored .env
+# (see docs/examples.org). The .env is opt-in and non-normative for v0/v1.0.
+.env
+.env.local

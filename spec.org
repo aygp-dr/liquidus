@@ -229,12 +229,273 @@ Ordering matters — the mocking framework must land first because everything do
 
 Each ~liquidus-00x~ repo lands with a short ~FEEDBACK.md~ enumerating what the spec left underspecified, contradicted itself on, or made harder than it should have been. The public spec revs (v0.1, v0.2, ...) accumulate those refinements — never a hidden branch, never a private consensus. The build teams are grading the spec, not the other way around.
 
-* Explicit non-goals (v0)
+* Customer-interaction core flow
 
-- *Live-Solidus admin overlay* — a browser-extension JS overlay in the Solidus admin panel that intercepts ~Cmd/Ctrl-J~ and exposes the CLI/TUI slash-command palette against the running admin session. This is a natural v1 candidate once the command surface stabilizes across grind units 002–008, but it is out of scope for v0. Mechanical reason: the overlay requires a live Solidus instance to intercept and rewrite requests against, and the whole toolkit's foundational axiom (contract-only backend) refutes that requirement. There is no running Solidus to test against, therefore the overlay cannot be exercised in this regime. Deferred design notes MAY live in ~docs/~ once written.
-- *Admin-only surface* — returns, refunds, CSR back-office queues. Customer-facing surface only for v0.
-- *Shipping-provider integration* — carrier label creation, tracking-number lookups against carrier APIs. Order-level shipping *state* (as returned by Solidus) is in scope; carrier-side integration is not.
-- *Stateful mock* — Prism does not persist state across requests, and this spec does not ask it to. The session-shim grind unit (liquidus-008) is the correct home for demo-mode statefulness, not the mock server itself.
+The 33 Solidus tags are the taxonomy — but a tag list is not a flow. A customer does not think in tags. This section pins the five-stage flow a customer walks through, names which tags participate at each stage, and derives the command surface (CLI, TUI, MCP) mechanically from that mapping. Everything downstream — ~liquidus-002~ through ~liquidus-008~ — implements this surface. If the surface here does not cover a stage, the spec is wrong, not the build repo.
+
+** Core customer flow (narrative)
+
+Five stages, in order, from the customer's perspective (not the API's). Each stage names the Solidus tags that participate, which fixtures (F1-F5) already cover it, and the refutation condition that would invalidate the mapping.
+
+*** Stage 1 — browse
+
+- *Customer-observable goal*: find a product to buy.
+- *Solidus tags participating*: ~Products~, ~Variants~, ~Taxonomies~, ~Taxons~, ~Option types~, ~Option values~, ~Product properties~, ~Properties~, ~Images~, ~Classifications~, ~Stock items~, ~Stock locations~.
+- *Fixtures covering this stage*: F1 (products listing) and F2 (product detail by id) cover the read-side of ~Products~. No fixture yet covers taxonomy navigation or variant selection — that is a v0.1 fixture gap.
+- *Refutation condition*: /If a customer cannot arrive at a specific ~variant_id~ ready to be added to a cart using only the surface named in this section, then the browse stage is wrong and MUST be updated./
+
+*** Stage 2 — cart
+
+- *Customer-observable goal*: assemble the intended set of line items with quantities before committing to buy.
+- *Solidus tags participating*: ~Orders~ (via ~get-current-order~, the storefront "current cart" endpoint), ~Line items~ (create/update/delete against a cart), ~Coupon codes~ (apply/remove promotional codes at cart level), ~Promotions~ (read-only — the customer sees which promotions apply, not the admin config).
+- *Fixtures covering this stage*: F3 partially — it covers order create, but not line-item accumulation. Fixture gap: a cart-mutation fixture (add line item, observe subtotal change) is missing from v0.
+- *Refutation condition*: /If Prism's statelessness makes ~cart add~ followed by ~cart show~ return divergent line-item sets in a way F3 does not already warn about, then the cart stage is wrong and MUST be updated to cite the session-shim requirement inline./
+
+*** Stage 3 — checkout
+
+- *Customer-observable goal*: supply the shipping address, choose a shipping method, and arrive at a state where payment is the only remaining step.
+- *Solidus tags participating*: ~Checkouts~ (advance / complete / transition, plus checkout-scoped address and line-item mutations), ~Addresses~ (canonical address shape), ~Address books~ (saved addresses for authenticated users only — guest checkout bypasses), ~Countries~ (address form field lookup), ~States~ (address form field lookup), ~Zones~ (read-only, informs shipping availability), ~Shipments~ (read-only from the customer perspective: which shipments the checkout has produced and their selected shipping method).
+- *Fixtures covering this stage*: none. This is the largest fixture gap in v0. F3 stops at order-create; the ~advance-checkout~ / ~transition-checkout~ / ~complete-checkout~ triad has no acceptance fixture.
+- *Refutation condition*: /If the storefront checkout flow requires a tag not enumerated here (e.g., a distinct "Shipping methods" tag surfaces in Solidus that the current 33-tag list omits), then the checkout stage is wrong and MUST be updated — and the discovery is a spec bug, not a build-repo bug./
+
+*** Stage 4 — payment
+
+- *Customer-observable goal*: submit payment for the completed checkout and receive a confirmed order number.
+- *Solidus tags participating*: ~Payments~ (the checkout-scoped payment lifecycle: create, authorize, capture, purchase, void, credit), ~Credit cards~ (stored payment sources for authenticated users; guest checkout supplies inline), ~Store credit events~ (read-only surfacing of store credit applied to a payment).
+- *Fixtures covering this stage*: none. Payment submission has no v0 fixture. The Prism statelessness constraint bites hardest here: a customer expects "payment succeeded → order number persists," and Prism will not honor that without a session shim.
+- *Refutation condition*: /If a build repo cannot demonstrate payment submission and subsequent order-number retrieval within a single TUI or CLI session without invoking the session shim, then the payment stage is wrong and MUST be updated to require the shim explicitly at this stage rather than leaving it optional./
+
+*** Stage 5 — post-order (tracking / support)
+
+- *Customer-observable goal*: look up a placed order, see its shipment status, and (for authenticated users) review order history.
+- *Solidus tags participating*: ~Orders~ (~get-order~ by number with order-token, ~list-user-orders~ for authenticated history), ~Shipments~ (order-level shipment state — /not/ carrier state; see §Explicit non-goals), ~Users~ (authenticated user profile lookup).
+- *Fixtures covering this stage*: F3 covers ~get-order~ as a statelessness probe. No fixture covers ~list-user-orders~ or shipment-state retrieval. Fixture gap: an authenticated-user order-history fixture is missing.
+- *Refutation condition*: /If a customer cannot retrieve an order they placed in the same session using only the order number and order token, then the post-order stage is wrong and MUST be updated (and this is almost certainly a re-firing of F3's statelessness warning at higher volume)./
+
+** Stage-to-tag coverage summary
+
+Of the 33 Solidus tags, 25 participate directly in the customer flow across the five stages. The remaining 8 tags (~Configuration~, ~Stores~, ~Inventory units~, ~Stock movements~, ~Customer returns~, ~Return authorizations~, and admin-only ~Users~ / ~Credit cards~ management surfaces) are admin-side and MUST NOT appear in the customer flow surface for v0 — see §Explicit non-goals.
+
+* CLI surface
+
+Language-agnostic. Every subcommand named here MUST appear in every downstream CLI implementation (~liquidus-002~, ~liquidus-003~, ~liquidus-004~, ~liquidus-006~), spelled and flagged identically. Short-and-long flag pairs are normative; types (~string~, ~int~, ~bool~) are normative. Framework choice (typer, cobra, commander, thor) is NOT normative — see §Style guide.
+
+| Subcommand                          | Solidus tag           | Flags                                                                                          | Description                                                        | Stage       |
+|-------------------------------------+-----------------------+------------------------------------------------------------------------------------------------+--------------------------------------------------------------------+-------------|
+| ~liquidus products search~          | Products              | ~-q, --query <string>~; ~-p, --page <int>~; ~-n, --per-page <int>~; ~-t, --taxon <string>~   | Search the storefront product catalog.                             | browse      |
+| ~liquidus products get~             | Products              | ~<id>~ (positional, string); ~-v, --include-variants <bool>~                                  | Retrieve a single product by id.                                   | browse      |
+| ~liquidus taxons list~              | Taxons                | ~-t, --taxonomy <string>~; ~-p, --parent <string>~                                            | List taxons for a taxonomy (or all).                               | browse      |
+| ~liquidus taxonomies list~          | Taxonomies            | (none)                                                                                          | List all taxonomies.                                               | browse      |
+| ~liquidus variants get~             | Variants              | ~<id>~ (positional, string)                                                                    | Retrieve a variant by id (options + stock).                        | browse      |
+| ~liquidus cart show~                | Orders                | ~-o, --order-token <string>~                                                                   | Show the current cart contents.                                    | cart        |
+| ~liquidus cart add~                 | Line items            | ~<variant-id>~ (positional, string); ~-q, --quantity <int>~; ~-o, --order-token <string>~   | Add a line item to the cart.                                       | cart        |
+| ~liquidus cart update~              | Line items            | ~<line-item-id>~ (positional, string); ~-q, --quantity <int>~; ~-o, --order-token <string>~ | Update line item quantity.                                         | cart        |
+| ~liquidus cart remove~              | Line items            | ~<line-item-id>~ (positional, string); ~-o, --order-token <string>~                          | Remove a line item from the cart.                                  | cart        |
+| ~liquidus cart empty~               | Orders                | ~-o, --order-token <string>~                                                                   | Empty the cart of all line items.                                  | cart        |
+| ~liquidus coupon apply~             | Coupon codes          | ~<code>~ (positional, string); ~-o, --order-token <string>~                                    | Apply a coupon code to the cart.                                   | cart        |
+| ~liquidus coupon remove~            | Coupon codes          | ~<code>~ (positional, string); ~-o, --order-token <string>~                                    | Remove a coupon code from the cart.                                | cart        |
+| ~liquidus checkout show~            | Checkouts             | ~-o, --order-token <string>~                                                                   | Show current checkout state (which stage of the state machine).    | checkout    |
+| ~liquidus checkout address~         | Checkouts             | ~-f, --from-file <string>~; ~-b, --address-book-id <string>~; ~-o, --order-token <string>~   | Set the checkout's shipping and billing address.                   | checkout    |
+| ~liquidus checkout advance~         | Checkouts             | ~-o, --order-token <string>~                                                                   | Advance the checkout to the furthest possible state.               | checkout    |
+| ~liquidus checkout transition~      | Checkouts             | ~-s, --state <string>~; ~-o, --order-token <string>~                                          | Transition the checkout to a specific state.                       | checkout    |
+| ~liquidus checkout complete~        | Checkouts             | ~-o, --order-token <string>~                                                                   | Complete the checkout (irreversible; produces an order number).    | checkout    |
+| ~liquidus addresses list~           | Address books         | (none; authenticated only)                                                                     | List saved addresses for the current user.                         | checkout    |
+| ~liquidus countries list~           | Countries             | (none)                                                                                          | List countries (for address-form use).                             | checkout    |
+| ~liquidus states list~              | States                | ~-c, --country <string>~                                                                       | List states for a given country.                                   | checkout    |
+| ~liquidus payment methods~          | Payments              | ~-o, --order-token <string>~                                                                   | List available payment methods for the current checkout.           | payment     |
+| ~liquidus payment submit~           | Payments              | ~-m, --method <string>~; ~-s, --source <string>~; ~-o, --order-token <string>~                | Submit a payment for the current checkout.                         | payment     |
+| ~liquidus credit-cards list~        | Credit cards          | (none; authenticated only)                                                                     | List saved credit cards for the current user.                      | payment     |
+| ~liquidus store-credit balance~     | Store credit events   | (none; authenticated only)                                                                     | Show the current user's store credit balance and event history.    | payment     |
+| ~liquidus order get~                | Orders                | ~<number>~ (positional, string); ~-o, --order-token <string>~                                  | Retrieve an order by number.                                       | post-order  |
+| ~liquidus order list~               | Orders                | ~-p, --page <int>~; ~-n, --per-page <int>~                                                    | List the current user's orders (authenticated only).               | post-order  |
+| ~liquidus order shipments~          | Shipments             | ~<order-number>~ (positional, string); ~-o, --order-token <string>~                            | List order-level shipment state (order-level, not carrier).        | post-order  |
+
+*Global flags* (apply to every subcommand): ~--base-url <string>~ (defaults to ~$LIQUIDUS_BASE_URL~), ~--token <string>~ (bearer stub, defaults to ~$LIQUIDUS_BEARER~), ~--json~ (bool, raw passthrough output — default), ~--table~ (bool, pretty-print via the framework's table renderer), ~--stage~ (bool, print which flow stage this subcommand belongs to and exit).
+
+* TUI slash commands
+
+Same five-stage flow as an interactive palette. Every slash command MUST map 1:1 to a CLI subcommand from §CLI surface, at the same flow stage — no TUI-only shortcuts that lack a CLI equivalent, except for the palette-hygiene commands (~/help~, ~/refresh~, ~/quit~, ~/where~) which are TUI-only by design.
+
+| Slash command                       | Maps to CLI                          | Behavior                                                             | Stage       |
+|-------------------------------------+--------------------------------------+----------------------------------------------------------------------+-------------|
+| ~/products search <query>~          | ~liquidus products search~           | Render product results in the left pane; select opens detail.        | browse      |
+| ~/products get <id>~                | ~liquidus products get~              | Render a single product's detail in the right pane.                  | browse      |
+| ~/taxons list [taxonomy]~           | ~liquidus taxons list~               | Render taxon tree in the left pane.                                  | browse      |
+| ~/taxonomies~                       | ~liquidus taxonomies list~           | Render taxonomies as the top level of the tree.                      | browse      |
+| ~/variants get <id>~                | ~liquidus variants get~              | Render variant detail (options, stock).                              | browse      |
+| ~/cart~                             | ~liquidus cart show~                 | Render current cart in the detail pane.                              | cart        |
+| ~/cart add <variant-id> <qty>~      | ~liquidus cart add~                  | Add a line item; refresh cart view.                                  | cart        |
+| ~/cart update <line-id> <qty>~      | ~liquidus cart update~               | Update line item quantity; refresh cart view.                        | cart        |
+| ~/cart remove <line-id>~            | ~liquidus cart remove~               | Remove a line item; refresh cart view.                               | cart        |
+| ~/cart empty~                       | ~liquidus cart empty~                | Empty the cart; refresh cart view.                                   | cart        |
+| ~/coupon apply <code>~              | ~liquidus coupon apply~              | Apply a coupon code; refresh cart view.                              | cart        |
+| ~/coupon remove <code>~             | ~liquidus coupon remove~             | Remove a coupon code; refresh cart view.                             | cart        |
+| ~/checkout~                         | ~liquidus checkout show~             | Show the current checkout state in the detail pane.                  | checkout    |
+| ~/checkout address~                 | ~liquidus checkout address~          | Open the address form (or address-book picker).                      | checkout    |
+| ~/checkout advance~                 | ~liquidus checkout advance~          | Advance the checkout to its furthest possible state.                 | checkout    |
+| ~/checkout transition <state>~      | ~liquidus checkout transition~       | Transition to a specific state.                                      | checkout    |
+| ~/checkout complete~                | ~liquidus checkout complete~         | Complete the checkout (prompts for confirmation).                    | checkout    |
+| ~/addresses~                        | ~liquidus addresses list~            | List saved addresses (authenticated only).                           | checkout    |
+| ~/countries~                        | ~liquidus countries list~            | List countries for form use.                                         | checkout    |
+| ~/states <country>~                 | ~liquidus states list~               | List states for a country.                                           | checkout    |
+| ~/payment methods~                  | ~liquidus payment methods~           | List available payment methods.                                      | payment     |
+| ~/payment submit <method> [source]~ | ~liquidus payment submit~            | Submit payment for the current checkout.                             | payment     |
+| ~/credit-cards~                     | ~liquidus credit-cards list~         | List saved credit cards (authenticated only).                        | payment     |
+| ~/store-credit~                     | ~liquidus store-credit balance~      | Show store credit balance and events.                                | payment     |
+| ~/order <number>~                   | ~liquidus order get~                 | Retrieve and render an order by number.                              | post-order  |
+| ~/orders~                           | ~liquidus order list~                | List the current user's orders (authenticated only).                 | post-order  |
+| ~/order shipments <number>~         | ~liquidus order shipments~           | Show order-level shipment state.                                     | post-order  |
+| ~/help~                             | (none — TUI-only)                    | Show the slash-command palette.                                      | (meta)      |
+| ~/refresh~                          | (none — TUI-only)                    | Re-hit Prism for the current view. Makes statelessness observable.   | (meta)      |
+| ~/quit~                             | (none — TUI-only)                    | Exit the TUI.                                                        | (meta)      |
+| ~/where~                            | (none — TUI-only)                    | Show which flow stage the current view belongs to (browse/cart/…).   | (meta)      |
+
+* MCP tool / resource / template surface
+
+Three surfaces the agent uses. READ operations MUST be collapsed to one tool per Solidus tag; WRITE operations MUST be individually named tools with explicit parameter schemas. Every tool result MUST carry the F5 governance tuple (~provenance.source = "prism-mock"~, ~provenance.spec_sha = <pinned>~, ~provenance.backend = "none"~).
+
+** Tools
+
+| Tool name                    | Verb   | Parameters                                                            | Returns                                        | Stage       |
+|------------------------------+--------+-----------------------------------------------------------------------+------------------------------------------------+-------------|
+| ~list_products~              | READ   | ~query?: string~, ~page?: int~, ~per_page?: int~, ~taxon?: string~   | Product list + F5 provenance                   | browse      |
+| ~get_product~                | READ   | ~id: string~, ~include_variants?: bool~                              | Product detail + F5 provenance                 | browse      |
+| ~list_taxonomies~            | READ   | (none)                                                                 | Taxonomy list + F5 provenance                  | browse      |
+| ~list_taxons~                | READ   | ~taxonomy?: string~, ~parent?: string~                                | Taxon list + F5 provenance                     | browse      |
+| ~get_variant~                | READ   | ~id: string~                                                           | Variant detail + F5 provenance                 | browse      |
+| ~get_cart~                   | READ   | ~order_token: string~                                                  | Cart contents + F5 provenance                  | cart        |
+| ~add_line_item~              | WRITE  | ~variant_id: string~, ~quantity: int~, ~order_token: string~          | Updated cart + F5 provenance                   | cart        |
+| ~update_line_item~           | WRITE  | ~line_item_id: string~, ~quantity: int~, ~order_token: string~        | Updated cart + F5 provenance                   | cart        |
+| ~remove_line_item~           | WRITE  | ~line_item_id: string~, ~order_token: string~                          | Updated cart + F5 provenance                   | cart        |
+| ~empty_cart~                 | WRITE  | ~order_token: string~                                                  | Empty cart + F5 provenance                     | cart        |
+| ~apply_coupon~               | WRITE  | ~code: string~, ~order_token: string~                                  | Updated cart + F5 provenance                   | cart        |
+| ~remove_coupon~              | WRITE  | ~code: string~, ~order_token: string~                                  | Updated cart + F5 provenance                   | cart        |
+| ~get_checkout~               | READ   | ~order_token: string~                                                  | Checkout state + F5 provenance                 | checkout    |
+| ~set_checkout_address~       | WRITE  | ~address: AddressShape~, ~order_token: string~                        | Updated checkout + F5 provenance               | checkout    |
+| ~advance_checkout~           | WRITE  | ~order_token: string~                                                  | Updated checkout + F5 provenance               | checkout    |
+| ~transition_checkout~        | WRITE  | ~state: string~, ~order_token: string~                                | Updated checkout + F5 provenance               | checkout    |
+| ~complete_checkout~          | WRITE  | ~order_token: string~                                                  | Completed order + F5 provenance                | checkout    |
+| ~list_addresses~             | READ   | (none; authenticated only)                                             | Address book + F5 provenance                   | checkout    |
+| ~list_countries~             | READ   | (none)                                                                 | Country list + F5 provenance                   | checkout    |
+| ~list_states~                | READ   | ~country: string~                                                      | State list + F5 provenance                     | checkout    |
+| ~list_payment_methods~       | READ   | ~order_token: string~                                                  | Payment methods + F5 provenance                | payment     |
+| ~submit_payment~             | WRITE  | ~method: string~, ~source?: string~, ~order_token: string~            | Payment record + F5 provenance                 | payment     |
+| ~list_credit_cards~          | READ   | (none; authenticated only)                                             | Credit cards + F5 provenance                   | payment     |
+| ~get_store_credit_balance~   | READ   | (none; authenticated only)                                             | Balance + event list + F5 provenance           | payment     |
+| ~get_order~                  | READ   | ~number: string~, ~order_token: string~                               | Order detail + F5 provenance                   | post-order  |
+| ~list_orders~                | READ   | ~page?: int~, ~per_page?: int~ (authenticated only)                   | Order list + F5 provenance                     | post-order  |
+| ~list_shipments~             | READ   | ~order_number: string~, ~order_token: string~                          | Shipment state + F5 provenance                 | post-order  |
+
+The bearer token is NOT a tool parameter. It is baked into the MCP server's env (~LIQUIDUS_BEARER~). An agent MUST NOT be able to ask for a different token — CLAUDE.md §Anti-goals is normative on this.
+
+** Resources
+
+| URI pattern                              | Content type       | Content shape                                                          | Stage       |
+|------------------------------------------+--------------------+------------------------------------------------------------------------+-------------|
+| ~solidus://products~                     | ~application/json~ | ~{ data: Product[], provenance: F5 }~                                  | browse      |
+| ~solidus://product/{id}~                 | ~application/json~ | ~{ data: Product, provenance: F5 }~                                    | browse      |
+| ~solidus://taxonomies~                   | ~application/json~ | ~{ data: Taxonomy[], provenance: F5 }~                                 | browse      |
+| ~solidus://taxons?taxonomy={id}~         | ~application/json~ | ~{ data: Taxon[], provenance: F5 }~                                    | browse      |
+| ~solidus://variant/{id}~                 | ~application/json~ | ~{ data: Variant, provenance: F5 }~                                    | browse      |
+| ~solidus://cart/current?token={token}~   | ~application/json~ | ~{ data: Order, provenance: F5 }~                                      | cart        |
+| ~solidus://checkout/current?token={token}~ | ~application/json~ | ~{ data: Checkout, provenance: F5 }~                                 | checkout    |
+| ~solidus://countries~                    | ~application/json~ | ~{ data: Country[], provenance: F5 }~                                  | checkout    |
+| ~solidus://states?country={id}~          | ~application/json~ | ~{ data: State[], provenance: F5 }~                                    | checkout    |
+| ~solidus://addresses~                    | ~application/json~ | ~{ data: Address[], provenance: F5 }~                                  | checkout    |
+| ~solidus://payment-methods?token={token}~ | ~application/json~ | ~{ data: PaymentMethod[], provenance: F5 }~                           | payment     |
+| ~solidus://credit-cards~                 | ~application/json~ | ~{ data: CreditCard[], provenance: F5 }~                               | payment     |
+| ~solidus://store-credit~                 | ~application/json~ | ~{ data: { balance, events[] }, provenance: F5 }~                      | payment     |
+| ~solidus://order/{number}?token={token}~ | ~application/json~ | ~{ data: Order, provenance: F5 }~                                      | post-order  |
+| ~solidus://orders~                       | ~application/json~ | ~{ data: Order[], provenance: F5 }~                                    | post-order  |
+| ~solidus://order/{number}/shipments?token={token}~ | ~application/json~ | ~{ data: Shipment[], provenance: F5 }~                       | post-order  |
+
+Every resource body MUST include the F5 ~provenance~ wrapper at the top level, sibling to ~data~. A resource fetch that omits ~provenance~ is a fixture failure, not a warning.
+
+** Templates
+
+Prompt templates the agent invokes to structure multi-step interactions. Placeholders are named parameters supplied at template-invocation time.
+
+| Template name                | Purpose                                                              | Placeholder set                                       | Stage       |
+|------------------------------+----------------------------------------------------------------------+-------------------------------------------------------+-------------|
+| ~product-search-refine~      | Guide the agent through narrowing a broad product search.            | ~{query}~, ~{taxon?}~, ~{price_range?}~               | browse      |
+| ~find-alternatives-for-sku~  | Suggest alternative variants when a target SKU is out of stock.      | ~{sku}~, ~{quantity_needed}~                          | browse      |
+| ~cart-reconciliation~        | Reconcile cart contents against current stock and current promotions. | ~{order_token}~                                       | cart        |
+| ~checkout-triage~            | Diagnose why a checkout is stuck at a given state.                    | ~{order_token}~, ~{expected_state}~                   | checkout    |
+| ~payment-failure-recovery~   | Walk through payment failure modes and next-step remediation.        | ~{order_token}~, ~{last_payment_state}~               | payment     |
+| ~order-status-lookup~        | Full-detail lookup of an order by number, including shipment state.  | ~{order_number}~, ~{order_token}~                     | post-order  |
+| ~order-history-summary~      | Summarize an authenticated user's order history.                     | ~{page?}~, ~{per_page?}~                              | post-order  |
+
+
+** Cart-to-order state machine (customer view)
+
+The customer walks through this sequence of states between adding the first line item and receiving an order number. Every state maps to a specific set of CLI/TUI/MCP commands from the surface tables above.
+
+#+begin_src mermaid :file diagrams/liquidus-cart-to-order.svg
+stateDiagram-v2
+  [*] --> empty : /cart (fresh order-token)
+  empty --> cart_populated : /cart add <variant> <qty>
+  cart_populated --> cart_populated : /cart update | /cart remove | /coupon apply
+  cart_populated --> address : /checkout advance
+  address --> delivery : /checkout address (valid) → advance
+  delivery --> payment_stage : /checkout advance (shipping method chosen)
+  payment_stage --> confirm : /payment submit
+  confirm --> complete : /checkout complete
+  complete --> [*] : order number issued (post-order stage)
+  cart_populated --> empty : /cart empty
+  address --> cart_populated : /checkout transition cart (back)
+#+end_src
+
+The state machine MUST be readable from the customer's perspective, not the API's. Prism's statelessness makes it impossible to walk this machine end-to-end within a single mock-only session — see §Customer flow refutation on the payment-stage session-shim requirement.
+
+** CSR ticket-triage sequence (single-order customer support)
+
+The CSR persona is a v0 non-goal (see §Explicit non-goals: admin-only surface), but the sequence below is included for design consistency — a CSR-facing grind unit (candidate ~liquidus-009~) would reuse it. Included here as a documented shape, NOT a v0 build target.
+
+#+begin_src mermaid :file diagrams/liquidus-csr-ticket-triage.svg
+sequenceDiagram
+  actor CSR as CSR agent
+  participant TUI as liquidus TUI (CSR mode)
+  participant MCP as liquidus MCP
+  participant Mock as Prism mock
+  CSR->>TUI: /order <number>
+  TUI->>MCP: get_order(number, order_token)
+  MCP->>Mock: GET /orders/<number> (Bearer stub)
+  Mock-->>MCP: order body
+  MCP-->>TUI: { data: Order, provenance: F5 }
+  TUI-->>CSR: order detail rendered
+  CSR->>TUI: /order shipments <number>
+  TUI->>MCP: list_shipments(order_number, order_token)
+  MCP->>Mock: GET /orders/<number>/shipments
+  Mock-->>MCP: shipment list
+  MCP-->>TUI: { data: Shipment[], provenance: F5 }
+  TUI-->>CSR: shipment states rendered
+  Note over CSR,Mock: CSR triage never mutates order state in v0. Any write (refund, cancel) is admin-only and out of scope.
+#+end_src
+* Explicit non-goals (v0/v1.0)
+
+The following surface is deliberately excluded. Each item names why, and (where applicable) where it would live post-v1.
+
+** Web-context "Jump" command / Command-J admin overlay
+
+A browser-extension JS overlay in the Solidus admin panel that intercepts ~Cmd/Ctrl-J~ and exposes the CLI/TUI slash-command palette against the running admin session. Deferred as a v1+ candidate once the command surface stabilizes across grind units 002–008. Mechanical reason: the overlay requires a live Solidus instance to intercept and rewrite requests against, and the whole toolkit's foundational axiom (contract-only backend) refutes that requirement. There is no running Solidus to test against, therefore the overlay cannot be exercised in this regime. Deferred design notes MAY live in ~docs/~.
+
+** Admin-only / CSR back-office surface
+
+Returns processing (~Customer returns~, ~Return authorizations~), refund processing, and CSR back-office operations (~Configuration~, ~Stores~, ~Inventory units~, ~Stock movements~, admin ~Users~ management, admin ~Credit cards~ management) are excluded. The v1.0 flow is customer-facing, not CSR-facing. A CSR-facing surface is a distinct grind unit (candidate ~liquidus-009~) that MUST NOT be conflated with the customer surface — the tag overlap tempts a shared command tree that hides an auth-scope difference (customer sees own orders via order-token; CSR sees any order via api-key with admin role).
+
+** Shipping-provider (carrier) integration
+
+Carrier-side integrations — label generation, tracking-number lookup against UPS / FedEx / USPS APIs — are excluded. v1.0's ~Shipments~ tag exposes the customer's view of order-level shipment state (a Solidus-internal state machine), NOT carrier state. Solidus itself delegates carrier calls to plugins; modeling them in ~liquidus~ would exceed the 33-tag taxonomy.
+
+** Stateful mock
+
+Prism does not persist state across requests, and this spec does not ask it to. The session-shim grind unit (~liquidus-008~) is the correct home for demo-mode statefulness, not the mock server. As of v1.0 the shim is promoted from optional to REQUIRED for any consumer past the payment stage — see §Customer flow, Stage 4 refutation.
+
+** Live-Solidus verification examples
+
+A future v1+ artifact could ship 4–5 example snippets that talk to a *local* Solidus instance (docker-compose'd) with a real API key supplied via a git-ignored ~.env~. The natural home is a single ~docs/examples.org~ file with org-babel code blocks in shell, restclient/http, ruby, sql, and (over Emacs 32 container Tramp) direct process attachment. The file MAY be present in the public repo as a shape-of-v1 reference, but the code blocks MUST NOT be tangled or executed as part of the v0/v1.0 grind. Reason: same axiom refutation as the Cmd-J overlay — v0 through v1.0 have no running Solidus to hit, and adding one would move the repo across the ~liquidus~/~solidus~ phase boundary the name pins.
+
+The reference file ~docs/examples.org~ is permitted but non-normative: nothing in the toolkit MUST read it, and no fixture references it. Consumers that want a live-mode should ship it themselves.
 
 * Style guide, versioning, and fixtures
 
@@ -249,36 +510,44 @@ This spec follows the crowsnest spec style guide ([[https://wal.sh/tools/crowsne
 
 ** Versioning policy
 
-- *Major* (v0 → v1): wire-breaking. A required field added or removed, an error code changed, a contract shape altered. Consumers built against the prior major do not work without changes.
-- *Minor* (v0.1, v0.2, …): additive only. Optional fields, new fixtures, new grind units, prose clarifications. Consumers built against a prior minor within the same major continue to work.
+- *Major* (v0 → v1, v1 → v2): wire-breaking. A required field added or removed, an error code changed, a contract shape (URL structure, auth-model) altered. Consumers built against the prior major do not work without changes.
+- *Minor* (v1.0 → v1.1 → v1.2, …): additive only. Optional fields, new fixtures, new grind units, prose clarifications. Consumers built against a prior minor within the same major continue to work.
 - Every FEEDBACK.md-driven revision MUST classify itself as major or minor in the commit message and in the spec change-log table.
 
-** Fixtures F1–F5 (v0)
+** Fixtures F1–F9 (v1.0)
 
-Each fixture is a fully-specified request/response pair that a mock MUST serve and a consumer MUST be able to invoke. Fixture files live in ~liquidus-001/fixtures/~ once the mocking framework lands; the shapes below are the spec-level definitions.
+Each fixture is a fully-specified request/response pair that a mock MUST serve and a consumer MUST be able to invoke. Fixture files live in ~liquidus-001/fixtures/~; the shapes below are the spec-level definitions.
 
-- *F1 — products listing.* ~GET /api/v2/storefront/products~. Response MUST contain a top-level ~data~ array whose members carry ~id~, ~type: "product"~, and ~attributes~ with at least ~name~ and ~price~. No auth required (storefront read).
-- *F2 — product detail by id.* ~GET /api/v2/storefront/products/{id}~. Response MUST return the product resource shape from F1 for the supplied id — and MUST return HTTP 404 with error body ~{"error": "Not Found"}~ for an id absent from the fixture set.
-- *F3 — order create + fetch (statelessness probe).* ~POST /api/v2/storefront/order~ followed by ~GET /api/v2/storefront/order/{order-token}~. Under Prism's default (stateless) mode these two calls MUST NOT be assumed to share order state; the fixture explicitly documents that the fetched order need not match the created one. This is the refutation surface for §The actual constraint.
-- *F4 — bearer presence enforcement.* ~GET /api/v2/platform/products~. Without an ~Authorization: Bearer <anything>~ header the mock MUST return 401. With any bearer-shaped value present it MUST return 200 (Prism's presence-only ~checkSecurity~ — see §The actual constraint).
-- *F5 — governance tuple round-trip.* Any MCP tool call whose result body wraps a mock response MUST include a top-level ~provenance~ object with ~source: "prism-mock"~, ~spec_sha: <pinned SHA>~, and ~backend: "none"~. Absence of the tuple is a fixture failure, not a warning.
+Paths follow the reified upstream OAS (v1 Spree classic API). liquidus-001 FEEDBACK.md refuted spec v0.0's v2 storefront/platform assumption — the OAS at the pinned SHA has no such split.
+
+- *F1 — products listing.* ~GET /products~ with bearer stub. Response MUST contain a top-level ~products~ array whose members carry ~id~, ~name~, ~display_price~. Bearer required (v1 default).
+- *F2 — product detail by id + 404.* ~GET /products/{id}~. Prism does NOT distinguish known vs unknown ids — both may return 200. This IS the statelessness surprise: the v0 MUST-404-on-unknown claim is refuted. The MSW alternative can enforce 404 via hand-authored handler; Prism cannot without a session shim. Both behaviors are documented in the fixture case set.
+- *F3 — order create + fetch (statelessness probe).* ~POST /orders~ then ~GET /orders/mine~ with bearer stub. Under Prism's default (stateless) mode the two calls MUST NOT be assumed to share order state; the fixture explicitly documents that the fetched order need not match the created one.
+- *F4 — bearer presence enforcement.* ~GET /orders/mine~ without ~Authorization~ header MUST return 401. With any bearer-shaped value present it MUST return 200. Spec v0.0's storefront/platform split is dropped in v1.0 — the reified OAS has no such distinction.
+- *F5 — governance tuple round-trip.* Any MCP tool call whose result body wraps a mock response MUST include a top-level ~provenance~ object with ~source: "prism-mock"~, ~spec_sha: <pinned SHA>~, and ~backend: "none"~. Absence is a fixture failure, not a warning.
+- *F6 — order-token guest checkout* (added v1.0). A guest customer creates a cart, receives an ~order_token~, and uses it across cart-mutation calls in a single session. Under Prism this fixture is EXPECTED to fail on cross-request consistency — the failure is the point. Reveals the payment-stage session-shim requirement.
+- *F7 — cart mutation* (added v1.0). ~POST /orders/<num>/line_items~ then ~GET /orders/<num>~ with order-token. MUST document that Prism's response body does NOT reflect the added line item; a session-shim consumer MUST make it reflect.
+- *F8 — checkout advance* (added v1.0). ~PUT /checkouts/<num>/next~ from ~cart~ through ~complete~. Stateless Prism cannot walk the machine; MSW alternative or session shim MUST. Fixture asserts the state-machine transitions, not the mock's persistence.
+- *F9 — order history for authenticated user* (added v1.0). ~GET /orders/mine~ paginated. Bearer + presumed authenticated identity. Under Prism the pagination is schema-driven; a session-shim consumer MUST return the same set across pages 1..N.
 
 ** Refutation conditions (spec-level)
 
-- If Prism starts validating bearer authenticity against an external authority, or a build team needs role-based authz-denial behavior (403 vs 401 tied to role, not presence), then this spec is wrong and MUST be updated to describe a stateful-auth mode.
-- If a build team demonstrates that F3's statelessness surprise made cross-request-consistent demos impossible without shipping a session shim, then §Component: Session shim MUST be promoted from optional to required for that consumer.
-- If a build team cannot map a Solidus API tag to exactly one CLI/TUI subcommand family, then §Component: CLI MUST be updated to name the exception and its resolution.
+Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md); the third remains untriggered. Both firings are folded into v1.0's normative shape.
+
+- (FIRED, v0.0 → v1.0) /If a build team cannot map a Solidus API tag to exactly one CLI/TUI subcommand family, then §Component: CLI MUST be updated to name the exception and its resolution./ — Orders tag maps to two customer-flow stages (cart, post-order). Resolved in v1.0 §CLI surface by splitting into ~cart *~ and ~order *~ subcommand families.
+- (FIRED, v0.0 → v1.0) /If a build team demonstrates that F3's statelessness surprise made cross-request-consistent demos impossible without shipping a session shim, then §Session shim MUST be promoted from optional to required for that consumer./ — Fired even at the mocking-framework grind. Resolved in v1.0 §Session shim (implicit under Customer flow Stage 4 payment).
+- (NOT FIRED) /If Prism starts validating bearer authenticity against an external authority, or a build team needs role-based authz-denial behavior (403 vs 401 tied to role), then this spec is wrong and MUST be updated to describe a stateful-auth mode./ — Prism's ~checkSecurity~ remains presence-only. Stub bearer still satisfies the contract.
 
 * Spec revisions
 
-| Version | Trigger                                          | Date       | Classification | Cumulative additions |
-|---------+--------------------------------------------------+------------+----------------+----------------------|
-| v0      | Initial hand-authored spec                       | 2026-07-01 | (initial)      | fixtures F1–F5, 8-build validation plan, style-guide adoption |
-| v0.1    | liquidus-001 feedback                            | pending    | pending        |                      |
-| v0.2    | liquidus-002 feedback                            | pending    | pending        |                      |
-| v0.3    | liquidus-003 feedback                            | pending    | pending        |                      |
-| v0.4    | liquidus-004 feedback                            | pending    | pending        |                      |
-| v0.5    | liquidus-005 feedback                            | pending    | pending        |                      |
-| v0.6    | liquidus-006 (Ruby CLI/TUI) feedback             | pending    | pending        |                      |
-| v0.7    | liquidus-007 (Ruby SDK) feedback                 | pending    | pending        |                      |
-| v0.8    | liquidus-008 (Rack session shim) feedback        | pending    | pending        |                      |
+| Version | Trigger                                          | Date       | Classification | Cumulative additions                                                                 |
+|---------+--------------------------------------------------+------------+----------------+--------------------------------------------------------------------------------------|
+| v0      | Initial hand-authored spec                       | 2026-07-01 | (initial)      | fixtures F1–F5 (v2 API assumption), 8-build validation plan, style-guide adoption    |
+| v1.0    | liquidus-001 (mocking) feedback                  | 2026-07-01 | MAJOR          | v1 classic-API paths; F1–F4 rewritten; F6–F9 added; storefront/platform split removed; §Customer flow + §CLI surface + §TUI surface + §MCP surface; session shim promoted to required-at-payment; Cmd-J / admin / carrier / stateful-mock / live-Solidus non-goals |
+| v1.1    | liquidus-002 (Python CLI/TUI) feedback           | pending    | pending        |                                                                                      |
+| v1.2    | liquidus-003 (Go CLI/TUI) feedback               | pending    | pending        |                                                                                      |
+| v1.3    | liquidus-004 (TypeScript CLI/TUI) feedback       | pending    | pending        |                                                                                      |
+| v1.4    | liquidus-005 (MCP server) feedback               | pending    | pending        |                                                                                      |
+| v1.5    | liquidus-006 (Ruby CLI/TUI) feedback             | pending    | pending        |                                                                                      |
+| v1.6    | liquidus-007 (Ruby SDK) feedback                 | pending    | pending        |                                                                                      |
+| v1.7    | liquidus-008 (Rack session shim) feedback        | pending    | pending        |                                                                                      |

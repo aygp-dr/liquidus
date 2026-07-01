@@ -1,0 +1,81 @@
+#+TITLE: liquidus — live-Solidus verification examples (v1+ shape reference)
+#+AUTHOR: JW
+#+DATE: [2026-07-01]
+
+* Status: NON-NORMATIVE
+
+This file is permitted in the public repo per ~CLAUDE.md~ §Public repo scope and pointed at from ~spec.org~ §Live-Solidus verification examples. It is *not* part of the v0/v1.0 grind. Nothing in ~liquidus~ (nor in any ~liquidus-00x~ build repo) MUST read this file, and no fixture references it. It documents the *shape* a v1+ live-verification story would take once a real Solidus is on the table.
+
+The code blocks below are illustrative. They are NOT tangled or executed by the current toolkit. If you want a live-mode you ship the runner yourself.
+
+* Prerequisites (for a hypothetical live run)
+
+- A local Solidus instance (docker-compose, per Solidus's own instructions).
+- A ~.env~ at the root of *this* repo — git-ignored, per ~.gitignore~. Shape:
+
+  #+begin_example
+  SOLIDUS_BASE_URL=http://localhost:3000
+  SOLIDUS_API_KEY=redacted-real-key-here
+  SOLIDUS_ORDER_TOKEN=optional-guest-token
+  #+end_example
+
+- One of: ~bash~, Emacs ~restclient~, ~ruby~, ~psql~, or an Emacs 32 container ~tramp~ connection.
+
+* Example 1 — shell + curl (products browse)
+
+#+begin_src bash :dir . :var API_KEY=(getenv "SOLIDUS_API_KEY")
+set -euo pipefail
+: "${SOLIDUS_BASE_URL:?set in .env}"
+curl -fsS -H "Authorization: Bearer $API_KEY" \
+  "$SOLIDUS_BASE_URL/api/v2/storefront/products?per_page=3" | jq '.data[] | {id, name: .attributes.name}'
+#+end_src
+
+* Example 2 — Emacs restclient (checkout state)
+
+#+begin_src restclient
+:base = http://localhost:3000
+:key  = (getenv "SOLIDUS_API_KEY")
+:token = (getenv "SOLIDUS_ORDER_TOKEN")
+
+GET :base/api/v2/storefront/checkout?include=shipments,payments
+Authorization: Bearer :key
+X-Spree-Order-Token: :token
+#+end_src
+
+* Example 3 — Ruby (SDK-style call using faraday)
+
+#+begin_src ruby :results output
+require 'faraday'
+require 'json'
+
+conn = Faraday.new(url: ENV.fetch('SOLIDUS_BASE_URL')) do |f|
+  f.request :json
+  f.response :json
+  f.headers['Authorization'] = "Bearer #{ENV.fetch('SOLIDUS_API_KEY')}"
+end
+
+resp = conn.get('/api/v2/storefront/products', per_page: 3)
+puts JSON.pretty_generate(resp.body['data'].map { |p| { id: p['id'], name: p.dig('attributes','name') } })
+#+end_src
+
+* Example 4 — SQL against the Solidus Postgres (read-only, ops observability)
+
+#+begin_src sql :engine postgresql :dbhost localhost :dbuser solidus :dbpassword solidus :database solidus_dev
+SELECT number, state, total, completed_at
+FROM spree_orders
+WHERE completed_at >= now() - interval '24 hours'
+ORDER BY completed_at DESC
+LIMIT 20;
+#+end_src
+
+* Example 5 — Emacs 32 container Tramp (run a rake task inside the running Solidus container)
+
+#+begin_src sh :dir "/docker:solidus-web:/app"
+bundle exec rails runner 'puts Spree::Order.where(state: :complete).count'
+#+end_src
+
+* What this file deliberately does NOT do
+
+- Does not authenticate against a real Solidus from any code path the toolkit itself runs.
+- Does not tangle the code blocks by default. Consumers wanting a live mode do so explicitly (~C-c C-c~ on a block, or their own runner).
+- Does not describe the mapping between these examples and the mock-based fixtures F1–F9. That mapping is the point of contact between v0/v1.0 (contract-only) and a future v2 (live-adapter) major — deferred until at least one build repo demonstrates that going live is worth the axiom shift.
