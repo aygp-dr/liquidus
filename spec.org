@@ -56,18 +56,35 @@ Everything left of ~SDK~ is grindable in parallel. Everything right of it is fix
 
 * Shared substrate
 
-** SDK generation contract (v1.3)
+** SDK generation contract (v1.3, revised v1.6)
 
-Every consumer needs an SDK that talks to Prism. As of v1.3 the spec accepts *any* of the following approaches per implementation, with no preference between them at the contract level. What is normative is the interface, not the generator.
+Every consumer needs an SDK that talks to Prism. As of v1.6 the spec accepts *any* of the following approaches per implementation, with no preference between codegen and hand-authored at the contract level. What is normative is the interface, not the generator.
 
-| Language   | Codegen tool (RECOMMENDED)                                     | Hand-written SDK (ACCEPTABLE) |
-|------------+---------------------------------------------------------------+-------------------------------|
-| Go         | ~oapi-codegen~ → ~liquidussdk~ / ~client.gen.go~              | acceptable                    |
-| TypeScript | ~openapi-typescript~ (types) + ~openapi-fetch~ (typed client) | acceptable                    |
-| Python     | ~openapi-python-client~                                        | acceptable (v0.2 baseline)    |
-| Ruby       | ~openapi-generator ruby~                                       | acceptable                    |
+| Language   | Codegen tool                                                   | Hand-written SDK  |
+|------------+---------------------------------------------------------------+-------------------|
+| Go         | ~oapi-codegen~                                                 | acceptable        |
+| TypeScript | ~openapi-typescript~ (types) + ~openapi-fetch~ (typed client) | acceptable        |
+| Python     | ~openapi-python-client~                                        | acceptable        |
+| Ruby       | ~openapi-generator ruby~                                       | acceptable        |
 
-The old §Component: CLI (Go) example below assumed oapi-codegen was the only story. v1.0 promoted §CLI surface (framework-independent). v1.3 promotes the SDK story to match.
+*Scope discipline (v1.6, additive).* Whether codegen or hand-authored wins depends on the SDK's scope:
+
+- If the SDK targets the *customer-flow subset* (25 of 33 tags, ~8 write operations, ~10 read operations), hand-authored is generally *preferred*. Codegen produces 100+ methods most of which the customer flow never calls; hand-authored SDKs stay scoped to the flow surface and are easier to audit.
+- If the SDK targets the *full 103-endpoint surface* (admin, returns, refunds, inventory, all reads and writes), codegen wins. The mechanical translation from OAS to methods is not something a human should re-do 103 times.
+
+Neither approach is "second-class." Do not use language like "RECOMMENDED" that implies it — it was removed from v1.6.
+
+*Two-tier SDK API pattern (v1.6, guidance not normative).* An SDK MAY offer a two-tier API:
+- Tier 1 (primary): typed value objects for the customer-flow subset, one method per resource verb.
+- Tier 2 (escape hatch): a `raw(method, path, ...)` method returning the upstream body as a language-native map/hash for consumers that need an endpoint outside the primary tier.
+
+Ruby's ~LiquidusSdk#raw~ in liquidus-007 is the reference implementation of this pattern.
+
+*Dependency policy (v1.6, normative).* An SDK gem/package MUST NOT force a heavyweight framework onto the consumer. Acceptable soft deps: an HTTP client (Faraday, httpx, fetch) and a schema/typing library (dry-rb, pydantic, zod). NOT acceptable: forcing Rails, Django, or a full validation stack. Consumers of the SDK stay lean.
+
+*Optional spec-SHA runtime check (v1.6, guidance).* An SDK MAY expose ~assert_spec_sha!(expected)~ that raises when the SDK's compiled-in SOLIDUS_SPEC_SHA does not match a caller-provided expected value. Useful when consumers vendor multiple SDKs at different spec-pin bumps.
+
+The old §Component: CLI (Go) example below assumed oapi-codegen was the only story. v1.0 promoted §CLI surface (framework-independent). v1.3 promoted the SDK story to match. v1.6 removes the "RECOMMENDED" hierarchy.
 
 ** oapi-codegen contract (Go-specific example, v0-era retained for reference)
 
@@ -608,5 +625,5 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.3    | liquidus-004 (TypeScript CLI/TUI) feedback       | 2026-07-01 | MINOR          | §SDK generation contract added (per-language codegen tools OR hand-authored SDK — no preference); §Boundary diagram redrawn with N per-language SDKs; F1 tightened: "response body MUST parse as JSON" |
 | v1.4    | liquidus-005 (MCP server) feedback               | 2026-07-01 | MINOR          | F5 wrap idempotency clarified (nested, composable); F5 wrap applies to error responses; wrapper shape ~{provenance, result}~ siblings; two acceptance tests added (bearer-not-in-inputSchema; MCP stdio round-trip); §MCP-server bearer env — server MUST NOT accept empty-bearer startup |
 | v1.5    | liquidus-006 (Ruby CLI/TUI) feedback             | 2026-07-01 | MINOR          | §MCP tool ID field types aligned to OAS (integer for most IDs, string for order-numbers/tokens/codes); Ruby version advisory (>= 3.1 for Solidus-adjacency, non-normative); TUI idiom acceptance (full-screen and line-oriented both acceptable) |
-| v1.6    | liquidus-007 (Ruby SDK) feedback                 | pending    | pending        |                                                                                      |
+| v1.6    | liquidus-007 (Ruby SDK) feedback                 | 2026-07-01 | MINOR          | §SDK generation contract: "RECOMMENDED" hierarchy removed — hand-authored is not second-class; scope discipline (customer-flow subset favors hand, full surface favors codegen); two-tier SDK API pattern (value objects + raw escape hatch) documented; SDK dependency policy (no framework lock-in); optional assert_spec_sha! runtime check |
 | v1.7    | liquidus-008 (Rack session shim) feedback        | pending    | pending        |                                                                                      |
