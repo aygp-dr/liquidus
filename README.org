@@ -1,0 +1,54 @@
+#+TITLE: liquidus
+#+SUBTITLE: Solidus API toolkit against a contract-only backend
+#+AUTHOR: JW
+#+DATE: [2026-07-01]
+
+* What this repo is
+
+A specification. Three files, no code, no build.
+
+- ~README.org~ — this file.
+- ~spec.org~ — the v0 spec (and its revisions v0.1, v0.2, …).
+- ~CLAUDE.md~ — agent instructions for anyone (human or agent) working against this spec.
+
+The name is the phase-diagram counterpart to /solidus/: the temperature boundary above which an alloy is fully molten. Apt because everything here happens in the pre-commitment phase — the API contract exists, but no toolkit implementation has solidified yet.
+
+* What this repo is not
+
+- Not a mock server. The spec /calls for/ one; it doesn't ship one.
+- Not an SDK. It calls for one generated from a pinned OpenAPI SHA; the generation happens elsewhere.
+- Not a CLI, TUI, or MCP server. See below.
+
+If you're looking for the implementation, you're looking in the wrong repo.
+
+* Where the implementation lives
+
+Each grind unit lives in its own /private/ validation repo. Each build takes only the three files in this repo as input and produces a working implementation of a single grind unit. When a build lands, it also lands a ~FEEDBACK.md~ against the public spec — the build teams grade the spec, not the other way around.
+
+| Repo             | Grind unit                        | Language / runtime                    | Status |
+|------------------+-----------------------------------+---------------------------------------+--------|
+| liquidus-001     | Mocking framework                 | Prism baseline + one alternative      | v0     |
+| liquidus-002     | CLI/TUI                           | Python (typer + textual)              | queued |
+| liquidus-003     | CLI/TUI                           | Go (cobra + bubbletea)                | queued |
+| liquidus-004     | CLI/TUI                           | TypeScript (commander + ink)          | queued |
+| liquidus-005     | MCP server                        | TBD from CLI-team feedback            | queued |
+
+Builds happen strictly in order — ~liquidus-00(n+1)~ does not start until ~liquidus-00n~'s feedback has been folded back into ~spec.org~ and the spec version has been bumped.
+
+* Spec revisions
+
+| Version | Trigger                              | Date       |
+|---------+--------------------------------------+------------|
+| v0      | Initial hand-authored spec           | 2026-07-01 |
+| v0.1    | liquidus-001 (mocking) feedback      | pending    |
+| v0.2    | liquidus-002 (Python) feedback       | pending    |
+| v0.3    | liquidus-003 (Go) feedback           | pending    |
+| v0.4    | liquidus-004 (TypeScript) feedback   | pending    |
+| v0.5    | liquidus-005 (MCP) feedback          | pending    |
+
+v0.5 closes the v0 grind cycle.
+
+* Read next
+
+- ~spec.org~ — start with §Provenance, then §The actual constraint, then §Grind units.
+- ~CLAUDE.md~ — required reading before any change to /any/ file in /any/ of these repos.

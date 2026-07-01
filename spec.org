@@ -1,0 +1,227 @@
+#+TITLE: liquidus — Solidus API toolkit against a contract-only backend
+#+AUTHOR: JW
+#+DATE: [2026-07-01]
+#+PROPERTY: header-args :mkdirp t
+#+OPTIONS: toc:2 num:2
+
+* Provenance
+
+- Spec source :: ~solidusio/solidus~, ~api/openapi/solidus-api.oas.yml~, ~master~ branch, fetched 2026-07-01.
+- Format :: OpenAPI 3.0.3, hosted for docs on Stoplight (SmartBear-owned since the 2023 acquisition — not Postman; Postman is a competing platform that absorbed Fern in Jan 2026 instead). Ownership is irrelevant to this spec: Prism is MIT-licensed, standalone, no vendor account required either way.
+- Surface :: 103 path templates, 29 tags, two security schemes — ~api-key~ (HTTP bearer, mandatory per-operation by default) and ~order-token~ (~X-Spree-Order-Token~ header, guest-checkout scoping).
+- Working invariant :: this repo never talks to a running Solidus instance. Contract in, contract out. The spec file is vendored and pinned by commit SHA at grind kickoff — a live upstream ~master~ is not a dependency.
+
+* The actual constraint, stated precisely
+
+"No API key" doesn't mean auth is absent from the contract — it's present and Prism enforces it. It means the CLI/TUI/MCP layer never needs a *real* admin token, because Prism's ~checkSecurity~ only validates that a bearer-shaped credential was presented, not that it's valid against a Solidus instance. A fixed stub token (~liquidus-dev-stub~) satisfies the contract permanently. This is the actual boundary being exploited, and it's worth stating as the refutation condition for the whole approach:
+
+- *Refuted if*: Prism starts validating token authenticity against an external authority, or a build team needs to demonstrate real authz-denial behavior (403 vs 401 branching tied to role, not just presence/absence of a header). Neither is true of Solidus's ~api-key~ scheme as specified — it's presence-only at the contract level.
+
+Second, sharper constraint, and the one actually worth the build teams' attention:
+
+- *Prism's mock server is stateless per request.* ~POST /orders~ then ~GET /orders/{number}~ do not share state. Each response is independently generated from ~examples~ (static mode) or ~json-schema-faker~ against the schema (dynamic mode, ~-d~). Any consumer that assumes create-then-read consistency (an order that persists across the session, a cart that accumulates line items) will not get it for free.
+  - *Refuted if*: a build team's demo requires a stateful checkout walkthrough (cart → address → payment → confirmation) with values that must match across steps. At that point the correct move is not "make Prism stateful" (it isn't, by design) but a thin session-shim in front of Prism that pins ~__example~ selection per the client's own in-memory state — see [[#session-shim]].
+
+* Boundary diagram
+
+#+begin_src mermaid :file diagrams/liquidus-boundary.svg
+flowchart LR
+  subgraph Consumers
+    CLI[liquidus CLI - Go]
+    TUI[liquidus TUI - bubbletea]
+    MCP[liquidus-mcp server]
+  end
+  subgraph Generated
+    SDK[liquidus-sdk - oapi-codegen client]
+  end
+  subgraph Contract
+    SPEC[(solidus-api.oas.yml, pinned SHA)]
+    PRISM[Prism mock :4010\nstatic or -d dynamic]
+  end
+  CLI --> SDK
+  TUI --> SDK
+  MCP --> SDK
+  SDK -->|Bearer liquidus-dev-stub| PRISM
+  SPEC -.->|prism mock| PRISM
+  SPEC -.->|oapi-codegen generate| SDK
+#+end_src
+
+Everything left of ~SDK~ is grindable in parallel. Everything right of it is fixed and shared — one generated client, one running mock, one pinned spec.
+
+* Shared substrate
+
+** oapi-codegen contract
+
+One generated package, vendored, regenerated only on a deliberate spec-pin bump — not on every build.
+
+#+begin_src yaml :tangle sdk/oapi-codegen-config.yaml
+package: liquidussdk
+generate:
+  models: true
+  client: true
+output: sdk/client.gen.go
+output-options:
+  skip-prune: true
+#+end_src
+
+#+begin_src bash :tangle scripts/generate-sdk.sh :shebang "#!/usr/bin/env bash"
+set -euo pipefail
+SPEC_SHA="${SOLIDUS_SPEC_SHA:?pin a commit SHA, do not track master}"
+curl -fsSL "https://raw.githubusercontent.com/solidusio/solidus/${SPEC_SHA}/api/openapi/solidus-api.oas.yml" \
+  -o spec/solidus-api.oas.yml
+oapi-codegen -config sdk/oapi-codegen-config.yaml spec/solidus-api.oas.yml
+#+end_src
+
+** Prism invocation
+
+#+begin_src bash :tangle scripts/mock.sh :shebang "#!/usr/bin/env bash"
+set -euo pipefail
+# static mode: honors the spec's own `examples:` blocks where present,
+# falls back to Prism's own schema-shaped filler where absent.
+# swap to `-d` for dynamic/faker-generated bodies once fixtures stabilize.
+npx --yes @stoplight/prism-cli@latest mock \
+  --port 4010 \
+  --cors \
+  spec/solidus-api.oas.yml
+#+end_src
+
+Auth stub, shared across all three consumers via env, never a real Solidus token:
+
+#+begin_src bash :tangle .env.example
+LIQUIDUS_BASE_URL=http://localhost:4010
+LIQUIDUS_BEARER=liquidus-dev-stub
+#+end_src
+
+** Session shim (only if a build team hits the statefulness refutation)
+:PROPERTIES:
+:CUSTOM_ID: session-shim
+:END:
+
+Not built by default — named here so a team doesn't reinvent it mid-grind. A small in-process layer that intercepts SDK calls, keeps a local map of ~order_number → last-known state~, and forces Prism's response selection via the ~Prefer: example=<key>~ header (or ~__example~ query param) so a client-side "order" stays self-consistent across a demo session. This is client-side state pretending to be server state — acceptable for a fixture-only repo, wrong to ship past it.
+
+* Component: CLI (Go)
+
+Command surface maps directly to the spec's 29 tags rather than inventing a taxonomy — reduces spec-to-command translation to a mechanical exercise, which is the point of grinding against a contract instead of a product.
+
+#+begin_src text
+liquidus products list [--q=] [--page=] [--per-page=]
+liquidus products get <id>
+liquidus orders mine
+liquidus orders get <number>
+liquidus checkouts advance <checkout-id>
+liquidus stock-locations list
+liquidus taxonomies list
+...  # one subtree per tag; see tags.txt for the full 29
+#+end_src
+
+- Framework: ~cobra~ for the command tree, ~liquidussdk~ for transport — no bespoke HTTP code in ~cmd/~.
+- Output: ~--json~ raw passthrough is the default; a ~--table~ flag pretty-prints via ~lipgloss/table~ for the subset of tags a human is likely to inspect interactively (products, orders, stock-locations).
+- Auth: reads ~LIQUIDUS_BEARER~ from env or ~--token~, defaults to the stub — never prompts for a real key, because there's nothing real behind the mock to authenticate against.
+
+#+begin_src go :tangle cmd/liquidus/main.go
+package main
+
+import (
+    "os"
+
+    "github.com/spf13/cobra"
+)
+
+func main() {
+    root := &cobra.Command{
+        Use:   "liquidus",
+        Short: "Solidus API surface against a Prism-mocked contract",
+    }
+    root.PersistentFlags().String("base-url", os.Getenv("LIQUIDUS_BASE_URL"), "Prism mock base URL")
+    root.PersistentFlags().String("token", os.Getenv("LIQUIDUS_BEARER"), "bearer stub (presence-only under Prism)")
+
+    // one AddCommand per tag subtree, generated from spec tags at scaffold time,
+    // hand-edited per-command after that — do not regenerate command files on
+    // every SDK bump, only the client package regenerates mechanically.
+    if err := root.Execute(); err != nil {
+        os.Exit(1)
+    }
+}
+#+end_src
+
+* Component: TUI
+
+Same SDK, same stub auth, different surface: a slash-command palette over a list/detail split view, not a form-heavy admin clone.
+
+- Framework: ~bubbletea~ + ~bubbles/list~ for resource browsing, a single-line command input parsed for ~/product 12~, ~/orders mine~, ~/checkout <id> advance~ style commands — mirrors the CLI's verb structure so the two don't drift into separate mental models.
+- Panes: left = tag/resource tree, right = detail pane rendering the JSON shape Prism actually returned (not a hand-built form — the point is to exercise the contract, not to pre-build UI for fields that might not survive spec changes).
+- No local persistence. Every ~/refresh~ re-hits Prism. This is deliberate given the statelessness constraint above — the TUI should make Prism's independence-per-request visible, not paper over it with a client cache that lies about consistency.
+
+#+begin_src mermaid :file diagrams/liquidus-tui-panes.svg
+flowchart LR
+  subgraph TUI
+    direction LR
+    Tree[resource tree\nby tag]
+    Cmd["/ command line"]
+    Detail[detail pane\nraw JSON + selected fields]
+  end
+  Tree --> Detail
+  Cmd --> Tree
+  Cmd --> Detail
+#+end_src
+
+* Component: MCP server
+
+Tool surface is a curated subset, not all 103 operations exposed 1:1 — an MCP tool list that size is unusable for an agent's context and defeats the purpose of grinding a clean interface.
+
+- Transport: stdio, same ~liquidussdk~ client underneath, same stub bearer baked into the server's own env (never exposed as an MCP tool parameter — an agent should not be able to ask for a different token, since there's nothing behind the mock a different token would mean anything to).
+- Tool grouping: one tool per tag for *read* operations (~list_products~, ~get_order~, ~list_taxonomies~, ...), collapsed rather than one-per-operation. *Write* operations (create/update/destroy) get individual tools with explicit schemas, since collapsing those loses the parameter contract an agent needs to call them correctly.
+- Provenance: every tool call response gets wrapped with a governance tuple noting it originated from a Prism mock against a pinned spec SHA, not a live Solidus instance — an agent (or a human reading agent output later) should never mistake mock data for real store state.
+
+#+begin_src go :tangle mcp/tools.go
+package mcp
+
+// Governance tuple attached to every tool result, not decorative —
+// distinguishes contract-mock provenance from any future live-backend mode.
+type Provenance struct {
+    Source   string `json:"source"`    // "prism-mock"
+    SpecSHA  string `json:"spec_sha"`  // pinned commit, not "master"
+    Backend  string `json:"backend"`   // "none" — explicit, not implied
+}
+#+end_src
+
+* Grind units
+
+Independently gradeable, roughly ordered by dependency, not by size:
+
+| Unit                  | Depends on   | Refutation condition                                              |
+|-----------------------+--------------+---------------------------------------------------------------------|
+| spec pin + SDK gen     | —            | oapi-codegen output doesn't compile against pinned spec             |
+| Prism fixture pass     | spec pin     | key operations (checkout flow, order creation) lack usable examples — mock returns schema-typed noise instead of realistic bodies |
+| CLI command tree       | SDK gen      | a tag's operations don't map cleanly to one subcommand family       |
+| TUI panes              | SDK gen      | statelessness makes a pane misleading without the refresh-only rule |
+| MCP tool surface       | SDK gen      | collapsed read-tools lose parameters an agent actually needs        |
+| session shim           | all above    | only build if a demo genuinely needs cross-call state; otherwise skip |
+
+* Naming
+
+Three candidates, in order of preference:
+
+1. *liquidus* — the phase-diagram counterpart to solidus: the temperature boundary above which an alloy is fully molten, below which it's mushy, and *solidus* itself is the boundary below which it's fully solid. Apt because this whole toolkit operates in the pre-commitment phase — contract-only, no backend has solidified yet. Not decorative: the name states the architecture (mock-phase vs. real-phase) rather than just riffing on the parent project's name.
+2. *virgule* — the actual typographic name for the ~/~ character (solidus is its Unicode name; virgule is the older term). Fits if you want the name to point at "this is about the API's shape," full stop, with no phase-diagram conceit to explain to sjg or build teams on first contact.
+3. *oblique* — British/typesetting synonym for the same slash character. Same rationale as virgule, slightly less overloaded (virgule also means other punctuation marks in some traditions; oblique doesn't).
+
+Lead recommendation: *liquidus* for the toolkit name (repo, CLI binary, TUI), with the generated client staying literally ~liquidus-sdk~ and the MCP server ~liquidus-mcp~ — keeps the phase metaphor doing real work across all three surfaces instead of being spent once and abandoned.
+
+* Validation regime — the liquidus-00x private repos
+
+The public repo (this one) holds the v0 spec only: ~README.org~, ~spec.org~, ~CLAUDE.md~. It never carries an implementation. Instead, private isolated repos exercise the spec against real code — each one takes only these three files as input, produces a working implementation of a single grind unit, and feeds refinements back into this spec before the next repo starts.
+
+Ordering matters — the mocking framework must land first because everything downstream depends on a running Prism (or a validated alternative). Then the consumer surfaces in the order the user asked for (Python, Go, TS), then the MCP server.
+
+| Repo             | Grind unit                        | Language / Runtime                     | Depends on     |
+|------------------+-----------------------------------+----------------------------------------+----------------|
+| liquidus-001     | Mocking framework                 | Prism (baseline) + one alternative     | spec.org only  |
+| liquidus-002     | CLI/TUI (Python)                  | Python (typer + textual)               | 001 fixtures   |
+| liquidus-003     | CLI/TUI (Go)                      | Go (cobra + bubbletea)                 | 001 fixtures   |
+| liquidus-004     | CLI/TUI (TypeScript)              | Node (commander + ink)                 | 001 fixtures   |
+| liquidus-005     | MCP server                        | Language TBD post-CLI feedback         | 001 fixtures   |
+
+** Feedback protocol
+
+Each ~liquidus-00x~ repo lands with a short ~FEEDBACK.md~ enumerating what the spec left underspecified, contradicted itself on, or made harder than it should have been. The public spec revs (v0.1, v0.2, ...) accumulate those refinements — never a hidden branch, never a private consensus. The build teams are grading the spec, not the other way around.
