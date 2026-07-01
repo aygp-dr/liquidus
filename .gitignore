@@ -1,0 +1,3 @@
+# Reified upstream spec — tracked by pointer (SOLIDUS_SPEC_SHA in GNUmakefile),
+# not by payload. Regenerate any time with: gmake spec
+.spec-cache/

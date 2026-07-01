@@ -5,11 +5,13 @@
 
 * What this repo is
 
-A specification. Three files, no code, no build.
+A specification. Five files, no code.
 
 - ~README.org~ — this file.
 - ~spec.org~ — the v0 spec (and its revisions v0.1, v0.2, …).
 - ~CLAUDE.md~ — agent instructions for anyone (human or agent) working against this spec.
+- ~GNUmakefile~ — targets to reify the upstream Solidus OpenAPI spec locally against a pinned commit SHA (~gmake spec~, ~gmake validate~, ~gmake tags~, ~gmake version~).
+- ~.gitignore~ — ignores ~.spec-cache/~; the reified spec is tracked by pointer (SHA), not payload.
 
 The name is the phase-diagram counterpart to /solidus/: the temperature boundary above which an alloy is fully molten. Apt because everything here happens in the pre-commitment phase — the API contract exists, but no toolkit implementation has solidified yet.
 

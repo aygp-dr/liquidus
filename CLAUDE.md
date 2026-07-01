@@ -38,8 +38,10 @@ This is the *entire* tracked file list:
 - `README.org` — landing page, three-file constraint, pointer to build repos.
 - `spec.org` — the v0 specification and its successors (v0.1, v0.2, …).
 - `CLAUDE.md` — this file.
+- `GNUmakefile` — targets to reify the upstream Solidus OpenAPI spec locally against the pinned SHA (`gmake spec`, `gmake validate`, `gmake tags`, `gmake version`).
+- `.gitignore` — ignores `.spec-cache/`. The reified upstream spec is a build artifact, tracked by pointer (SHA), not payload.
 
-Anything else is a smell. If you need to add a diagram, tangle it from `spec.org` at read time; don't check the rendered SVG in.
+Anything else is a smell. If you need to add a diagram, tangle it from `spec.org` at read time; don't check the rendered SVG in. If you need to touch generated code, you are in the wrong repo — do it in a `liquidus-00x` build repo.
 
 ## Build repo scope (build-repo mode)
 
@@ -54,6 +56,18 @@ Each `liquidus-00x` repo takes only `README.org`, `spec.org`, and `CLAUDE.md` as
 5. **Non-issues** — sections that read cleanly and translated to code without friction. This is signal, not filler; it prevents the next revision from over-editing sections that already work.
 
 The public spec revs (v0.1, v0.2, …) accumulate these — never a hidden branch, never a private consensus. The build teams grade the spec, not the other way around.
+
+## Style guide and version-bump policy
+
+The public spec follows the crowsnest spec style guide (`https://wal.sh/tools/crowsnest/spec`). Adherence points that matter for revisions:
+
+- **RFC 2119 keywords** — MUST, SHOULD, MAY are in CAPS wherever a normative claim is being made about an implementation's obligations.
+- **Refutation conditions** are bulleted, phrased as `If <condition>, then this spec is wrong and MUST be updated.`
+- **Fixtures F1–Fn** are the acceptance tests. Every grind unit MUST pass the fixtures at the spec version it consumed. Version bumps that touch a fixture MUST enumerate which build repos need to re-run.
+- **Version-bump policy**:
+  - **Major** (v0 → v1, v1 → v2): wire-breaking. A required field added, a required field removed, an error code changed, a contract shape altered. Any consumer built against the prior major will not work without changes.
+  - **Minor** (v0 → v0.1 → v0.2): additive only. Optional fields, new fixtures, new grind units, prose clarifications. Any consumer built against a prior minor within the same major continues to work.
+- **Change log**: `spec.org` §Spec revisions maintains a version → cumulative additions table; always additive per major line.
 
 ## Revision discipline (what to fold in, what to drop)
 
@@ -78,7 +92,7 @@ If a FEEDBACK.md item doesn't fit one of the promotable categories above, note i
 
 ## The cycle (strict)
 
-For each `n` in 1..5:
+For each `n` in 1..8:
 
 1. Copy the current public spec (at whatever version tag is head) into `liquidus-00n`.
 2. Implement the grind unit for `liquidus-00n`.
@@ -92,13 +106,16 @@ Skipping step 4 collapses the whole regime: a build repo built against an unrevi
 
 Ordered by dependency. Do one build at a time; do not start `liquidus-00(n+1)` until `liquidus-00n`'s feedback has landed in the public spec.
 
-| Repo          | Grind unit               | Language / runtime                | Depends on          |
-|---------------|--------------------------|-----------------------------------|---------------------|
-| liquidus-001  | Mocking framework        | Prism baseline + one alternative  | spec.org only       |
-| liquidus-002  | CLI/TUI                  | Python (typer + textual)          | 001 fixtures        |
-| liquidus-003  | CLI/TUI                  | Go (cobra + bubbletea)            | 001 fixtures        |
-| liquidus-004  | CLI/TUI                  | TypeScript (commander + ink)      | 001 fixtures        |
-| liquidus-005  | MCP server               | Language chosen from 002–004 feedback | 001 fixtures    |
+| Repo          | Grind unit                            | Language / runtime                     | Depends on          |
+|---------------|---------------------------------------|----------------------------------------|---------------------|
+| liquidus-001  | Mocking framework                     | Prism baseline + one alternative       | spec.org only       |
+| liquidus-002  | CLI/TUI                               | Python (typer + textual)               | 001 fixtures        |
+| liquidus-003  | CLI/TUI                               | Go (cobra + bubbletea)                 | 001 fixtures        |
+| liquidus-004  | CLI/TUI                               | TypeScript (commander + ink)           | 001 fixtures        |
+| liquidus-005  | MCP server                            | Language chosen from 002–004 feedback  | 001 fixtures        |
+| liquidus-006  | Ruby CLI/TUI                          | Ruby (thor + tty-toolkit)              | 001 fixtures        |
+| liquidus-007  | Ruby SDK (contract-first client)      | Ruby (dry-rb + faraday)                | 001 fixtures        |
+| liquidus-008  | Session shim (Rack middleware)        | Ruby (Rack)                            | 001 + 007           |
 
 ## Full-implementation bootstrap protocol
 
@@ -115,7 +132,7 @@ The gist also carries the meta-meta-meta and meta⁴ prompts. In this project th
 
 - **Do not** ship a live-Solidus adapter in the spec repo. The whole point of `liquidus` is that no backend has solidified.
 - **Do not** teach Prism to be stateful. If a build needs cross-request state, build a session shim in the *consumer* (see `spec.org` §Session shim).
-- **Do not** collapse the 29 tags into a hand-curated resource taxonomy for the CLI. The tags are the taxonomy — the point of grinding against a contract is that translation is mechanical.
+- **Do not** collapse the 33 tags (verified count) into a hand-curated resource taxonomy for the CLI. The tags are the taxonomy — the point of grinding against a contract is that translation is mechanical.
 - **Do not** expose the bearer token as an MCP tool parameter. There is nothing behind the mock a different token would mean anything to; letting agents pass one is theater.
 
 ## Acceptance: end-to-end for the v0 grind cycle
