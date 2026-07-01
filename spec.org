@@ -27,30 +27,49 @@ Second, sharper constraint, and the one actually worth the build teams' attentio
 #+begin_src mermaid :file diagrams/liquidus-boundary.svg
 flowchart LR
   subgraph Consumers
-    CLI[liquidus CLI - Go]
-    TUI[liquidus TUI - bubbletea]
+    CLI[liquidus CLIs — Go / Python / TS / Ruby]
+    TUI[liquidus TUIs — bubbletea / textual / ink / tty-toolkit]
     MCP[liquidus-mcp server]
   end
-  subgraph Generated
-    SDK[liquidus-sdk - oapi-codegen client]
+  subgraph SDKs["SDKs (per-language, generated OR hand-authored — see §SDK generation contract)"]
+    SDK_GO[Go SDK\noapi-codegen or hand]
+    SDK_PY[Python SDK\nhoused in each build]
+    SDK_TS[TS SDK\nopenapi-typescript or hand]
+    SDK_RB[Ruby SDK\nopenapi-generator or hand]
   end
   subgraph Contract
     SPEC[(solidus-api.oas.yml, pinned SHA)]
     PRISM[Prism mock :4010\nstatic or -d dynamic]
   end
-  CLI --> SDK
-  TUI --> SDK
-  MCP --> SDK
-  SDK -->|Bearer liquidus-dev-stub| PRISM
+  CLI --> SDK_GO & SDK_PY & SDK_TS & SDK_RB
+  TUI --> SDK_GO & SDK_PY & SDK_TS & SDK_RB
+  MCP --> SDK_GO & SDK_PY & SDK_TS & SDK_RB
+  SDK_GO -->|Bearer liquidus-dev-stub| PRISM
+  SDK_PY -->|Bearer liquidus-dev-stub| PRISM
+  SDK_TS -->|Bearer liquidus-dev-stub| PRISM
+  SDK_RB -->|Bearer liquidus-dev-stub| PRISM
   SPEC -.->|prism mock| PRISM
-  SPEC -.->|oapi-codegen generate| SDK
+  SPEC -.->|codegen or hand| SDKs
 #+end_src
 
 Everything left of ~SDK~ is grindable in parallel. Everything right of it is fixed and shared — one generated client, one running mock, one pinned spec.
 
 * Shared substrate
 
-** oapi-codegen contract
+** SDK generation contract (v1.3)
+
+Every consumer needs an SDK that talks to Prism. As of v1.3 the spec accepts *any* of the following approaches per implementation, with no preference between them at the contract level. What is normative is the interface, not the generator.
+
+| Language   | Codegen tool (RECOMMENDED)                                     | Hand-written SDK (ACCEPTABLE) |
+|------------+---------------------------------------------------------------+-------------------------------|
+| Go         | ~oapi-codegen~ → ~liquidussdk~ / ~client.gen.go~              | acceptable                    |
+| TypeScript | ~openapi-typescript~ (types) + ~openapi-fetch~ (typed client) | acceptable                    |
+| Python     | ~openapi-python-client~                                        | acceptable (v0.2 baseline)    |
+| Ruby       | ~openapi-generator ruby~                                       | acceptable                    |
+
+The old §Component: CLI (Go) example below assumed oapi-codegen was the only story. v1.0 promoted §CLI surface (framework-independent). v1.3 promotes the SDK story to match.
+
+** oapi-codegen contract (Go-specific example, v0-era retained for reference)
 
 One generated package, vendored, regenerated only on a deliberate spec-pin bump — not on every build.
 
@@ -540,7 +559,7 @@ Each fixture is a fully-specified request/response pair that a mock MUST serve a
 
 Paths follow the reified upstream OAS (v1 Spree classic API). liquidus-001 FEEDBACK.md refuted spec v0.0's v2 storefront/platform assumption — the OAS at the pinned SHA has no such split.
 
-- *F1 — products listing.* ~GET /products~ with bearer stub. Response MUST contain a top-level ~products~ array whose members carry ~id~, ~name~, ~display_price~. Bearer required (v1 default).
+- *F1 — products listing.* ~GET /products~ with bearer stub. Response MUST contain a top-level ~products~ array whose members carry ~id~, ~name~, ~display_price~. Bearer required (v1 default). *v1.3 tightening*: response body MUST parse as JSON (Prism always emits JSON; a non-JSON success response is a fixture failure).
 - *F2 — product detail by id + 404.* ~GET /products/{id}~. Prism does NOT distinguish known vs unknown ids — both may return 200. This IS the statelessness surprise: the v0 MUST-404-on-unknown claim is refuted. The MSW alternative can enforce 404 via hand-authored handler; Prism cannot without a session shim. Both behaviors are documented in the fixture case set.
 - *F3 — order create + fetch (statelessness probe).* ~POST /orders~ then ~GET /orders/mine~ with bearer stub. Under Prism's default (stateless) mode the two calls MUST NOT be assumed to share order state; the fixture explicitly documents that the fetched order need not match the created one.
 - *F4 — bearer presence enforcement.* ~GET /orders/mine~ without ~Authorization~ header MUST return 401. With any bearer-shaped value present it MUST return 200. Spec v0.0's storefront/platform split is dropped in v1.0 — the reified OAS has no such distinction.
@@ -566,7 +585,7 @@ Two conditions FIRED during the liquidus-001 grind (see that repo's FEEDBACK.md)
 | v1.0    | liquidus-001 (mocking) feedback                  | 2026-07-01 | MAJOR          | v1 classic-API paths; F1–F4 rewritten; F6–F9 added; storefront/platform split removed; §Customer flow + §CLI surface + §TUI surface + §MCP surface; session shim promoted to required-at-payment; Cmd-J / admin / carrier / stateful-mock / live-Solidus non-goals |
 | v1.1    | liquidus-002 (Python CLI/TUI) feedback           | 2026-07-01 | MINOR          | session-shim requirement moved from payment stage to CART stage; §Component: CLI/TUI/MCP v0-era sections marked HISTORICAL; §CLI surface adds cart-stage bootstrap semantics for ~liquidus cart show~; §CLI surface adds error-response contract (exit-code table) |
 | v1.2    | liquidus-003 (Go CLI/TUI) feedback               | 2026-07-01 | MINOR          | bearer env-var semantics (unset vs empty); cart-bootstrap token deferred to shim explicitly; pagination convention (v1 form, ?page=&per_page=); table renderer contract (6 keys × 20 rows × 60 chars); --verbose promoted to global flags |
-| v1.3    | liquidus-004 (TypeScript CLI/TUI) feedback       | pending    | pending        |                                                                                      |
+| v1.3    | liquidus-004 (TypeScript CLI/TUI) feedback       | 2026-07-01 | MINOR          | §SDK generation contract added (per-language codegen tools OR hand-authored SDK — no preference); §Boundary diagram redrawn with N per-language SDKs; F1 tightened: "response body MUST parse as JSON" |
 | v1.4    | liquidus-005 (MCP server) feedback               | pending    | pending        |                                                                                      |
 | v1.5    | liquidus-006 (Ruby CLI/TUI) feedback             | pending    | pending        |                                                                                      |
 | v1.6    | liquidus-007 (Ruby SDK) feedback                 | pending    | pending        |                                                                                      |
