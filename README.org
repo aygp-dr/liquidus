@@ -50,9 +50,9 @@ Builds happen strictly in order — ~liquidus-00(n+1)~ does not start until ~liq
 | v1.4    | liquidus-005 (MCP) feedback          | MINOR          | 2026-07-01 |
 | v1.5    | liquidus-006 (Ruby CLI/TUI) feedback | MINOR          | 2026-07-01 |
 | v1.6    | liquidus-007 (Ruby SDK) feedback     | MINOR          | 2026-07-01 |
-| v1.7    | liquidus-008 (Rack shim) feedback    | pending        | pending    |
+| v1.7    | liquidus-008 (Rack shim) feedback    | MINOR          | 2026-07-01 |
 
-v1.7 closes the v1 grind cycle. Major-bump reason (v0 → v1.0): reified OAS is the v1 Spree classic API, not the v2 storefront/platform split v0 assumed — path structure and auth model are both wire-breaking. See spec.org §Refutation conditions (spec-level).
+v1.7 closes the v1 grind cycle. All 8 private validation repos land against successive spec revisions; every revision traces to a specific FEEDBACK.md observation. One major bump (v0 → v1.0) — the reified OAS was v1 classic, not v2 storefront/platform as v0 assumed. Everything after was additive. Major-bump reason (v0 → v1.0): reified OAS is the v1 Spree classic API, not the v2 storefront/platform split v0 assumed — path structure and auth model are both wire-breaking. See spec.org §Refutation conditions (spec-level).
 
 * Read next
 
