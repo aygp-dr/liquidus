@@ -229,6 +229,13 @@ Ordering matters — the mocking framework must land first because everything do
 
 Each ~liquidus-00x~ repo lands with a short ~FEEDBACK.md~ enumerating what the spec left underspecified, contradicted itself on, or made harder than it should have been. The public spec revs (v0.1, v0.2, ...) accumulate those refinements — never a hidden branch, never a private consensus. The build teams are grading the spec, not the other way around.
 
+* Explicit non-goals (v0)
+
+- *Live-Solidus admin overlay* — a browser-extension JS overlay in the Solidus admin panel that intercepts ~Cmd/Ctrl-J~ and exposes the CLI/TUI slash-command palette against the running admin session. This is a natural v1 candidate once the command surface stabilizes across grind units 002–008, but it is out of scope for v0. Mechanical reason: the overlay requires a live Solidus instance to intercept and rewrite requests against, and the whole toolkit's foundational axiom (contract-only backend) refutes that requirement. There is no running Solidus to test against, therefore the overlay cannot be exercised in this regime. Deferred design notes MAY live in ~docs/~ once written.
+- *Admin-only surface* — returns, refunds, CSR back-office queues. Customer-facing surface only for v0.
+- *Shipping-provider integration* — carrier label creation, tracking-number lookups against carrier APIs. Order-level shipping *state* (as returned by Solidus) is in scope; carrier-side integration is not.
+- *Stateful mock* — Prism does not persist state across requests, and this spec does not ask it to. The session-shim grind unit (liquidus-008) is the correct home for demo-mode statefulness, not the mock server itself.
+
 * Style guide, versioning, and fixtures
 
 ** Style guide

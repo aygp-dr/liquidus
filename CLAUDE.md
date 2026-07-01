@@ -40,6 +40,7 @@ This is the *entire* tracked file list:
 - `CLAUDE.md` — this file.
 - `GNUmakefile` — targets to reify the upstream Solidus OpenAPI spec locally against the pinned SHA (`gmake spec`, `gmake validate`, `gmake tags`, `gmake version`).
 - `.gitignore` — ignores `.spec-cache/`. The reified upstream spec is a build artifact, tracked by pointer (SHA), not payload.
+- `docs/` (permitted, sparse) — design artifacts that inform the spec but exceed the shape of a single spec section (customer-flow diagrams, command-surface tables that would bloat `spec.org`, future-work notes for explicit non-goals). Each file MUST have a corresponding pointer in `spec.org` — orphaned docs are a smell. Do NOT check code into `docs/`.
 
 Anything else is a smell. If you need to add a diagram, tangle it from `spec.org` at read time; don't check the rendered SVG in. If you need to touch generated code, you are in the wrong repo — do it in a `liquidus-00x` build repo.
 
